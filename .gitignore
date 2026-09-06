@@ -230,3 +230,9 @@ app.log
 
 # Test File
 test.py
+
+# amdmaster
+amdmaster.index4
+
+# locations
+location.csv
