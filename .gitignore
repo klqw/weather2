@@ -232,7 +232,7 @@ app.log
 test.py
 
 # amdmaster
-amdmaster.index4
+input/amdmaster.index4
 
 # locations
-location.csv
+output/location/location.csv

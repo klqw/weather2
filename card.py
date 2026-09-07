@@ -82,11 +82,11 @@ def diff_to_color(diff):
 # CSV -> HTML
 def create_html(csv_file, config):
   # 地点マスタを取得
-  location_dir = Path(config["DEFAULT"]["location_input_dir"])
+  location_dir = Path(config["PATH"]["location_input_dir"])
   location_file = (location_dir / "locations.csv")
   try:
     # CSV読み込み
-    location_df = pd.read_csv(location_file, encoding=config["DEFAULT"]["output_encoding"])
+    location_df = pd.read_csv(location_file, encoding=config["CSV"]["output_encoding"])
     output_df = pd.read_csv(csv_file)
 
   except FileNotFoundError as e:
@@ -233,15 +233,15 @@ def main():
   config = load_config()
 
   logging.basicConfig(
-    filename=config["DEFAULT"]["log_file"],
+    filename=config["LOG"]["log_file"],
     level=logging.INFO,
-    encoding=config["DEFAULT"]["log_encoding"],
+    encoding=config["LOG"]["log_encoding"],
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
   )
 
   logging.info("========== START ==========")
 
-  input_dir = Path(config["DEFAULT"]["result_dir"])
+  input_dir = Path(config["PATH"]["result_dir"])
 
   # --------------------
   # 各CSVをHTMLに変換

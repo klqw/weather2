@@ -30,7 +30,7 @@ def load_csv_files(data_dir, config):
     logging.info("読み込み: %s", file)
     df = pd.read_csv(
       file,
-      encoding=config["DEFAULT"]["input_encoding"],
+      encoding=config["CSV"]["input_encoding"],
       skiprows=[0, 1, 2, 4, 5],
       usecols=[0, 1, 4, 7]
     )
@@ -65,9 +65,9 @@ def prepare_date(df):
 # 表示項目をまとめる
 def get_temp_columns(config):
   return [
-    config["DEFAULT"]["avg_tmp"],
-    config["DEFAULT"]["max_tmp"],
-    config["DEFAULT"]["min_tmp"]
+    config["COLUMN"]["avg_tmp"],
+    config["COLUMN"]["max_tmp"],
+    config["COLUMN"]["min_tmp"]
   ]
 
 # locationごと & 月ごとの平均気温を全取得
@@ -124,7 +124,7 @@ def save_csv(df, output_file, config):
   df.to_csv(
     output_file,
     index=False,
-    encoding=config["DEFAULT"]["output_encoding"]
+    encoding=config["CSV"]["output_encoding"]
   )
 
 
@@ -135,16 +135,16 @@ def main():
   config = load_config()
 
   logging.basicConfig(
-    filename=config["DEFAULT"]["log_file"],
+    filename=config["LOG"]["log_file"],
     level=logging.INFO,
-    encoding=config["DEFAULT"]["log_encoding"],
+    encoding=config["LOG"]["log_encoding"],
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
   )
 
   logging.info("========== START ==========")
 
-  input_dir = Path(config["DEFAULT"]["input_dir"])
-  output_dir = Path(config["DEFAULT"]["output_dir"])
+  input_dir = Path(config["PATH"]["data_dir"])
+  output_dir = Path(config["PATH"]["output_dir"])
 
   # --------------------
   # CSV読み込み
@@ -194,11 +194,11 @@ def main():
   min_filename = "min_stats.csv"
 
   # 出力ファイルパス指定
-  month_output_file = (output_dir / config["DEFAULT"]["stats_dir"] / month_filename)
-  daily_output_file = (output_dir / config["DEFAULT"]["stats_dir"] / daily_filename)
-  all_output_file = (output_dir / config["DEFAULT"]["stats_dir"] / all_filename)
-  max_output_file = (output_dir / config["DEFAULT"]["stats_dir"] / max_filename)
-  min_output_file = (output_dir / config["DEFAULT"]["stats_dir"] / min_filename)
+  month_output_file = (output_dir / config["PATH"]["stats_dir"] / month_filename)
+  daily_output_file = (output_dir / config["PATH"]["stats_dir"] / daily_filename)
+  all_output_file = (output_dir / config["PATH"]["stats_dir"] / all_filename)
+  max_output_file = (output_dir / config["PATH"]["stats_dir"] / max_filename)
+  min_output_file = (output_dir / config["PATH"]["stats_dir"] / min_filename)
 
   # 月、月・日、全期間のCSV出力
   save_csv(month_stats, month_output_file, config)

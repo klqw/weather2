@@ -31,7 +31,7 @@ def load_csv_files(data_dir, location, config):
     logging.info("読み込み: %s", file)
     df = pd.read_csv(
       file,
-      encoding=config["DEFAULT"]["input_encoding"],
+      encoding=config["CSV"]["input_encoding"],
       skiprows=[0, 1, 2, 4, 5],
       usecols=[0, 1, 4, 7]
     )
@@ -95,27 +95,27 @@ def prepare_date(df):
 # 表示項目をまとめる
 def get_temp_columns(config):
   return [
-    config["DEFAULT"]["avg_tmp"],
-    config["DEFAULT"]["max_tmp"],
-    config["DEFAULT"]["min_tmp"]
+    config["COLUMN"]["avg_tmp"],
+    config["COLUMN"]["max_tmp"],
+    config["COLUMN"]["min_tmp"]
   ]
 
 # スコア計算時のラベル(カラム名)を設定
 def get_score_calc_columns(config):
   return {
-    "loc_day": config["DEFAULT"]["location_daily_score"],
-    "loc_mon": config["DEFAULT"]["location_month_score"],
-    "loc_all": config["DEFAULT"]["location_overall_score"],
-    "all_day": config["DEFAULT"]["all_daily_score"],
-    "all_mon": config["DEFAULT"]["all_month_score"],
-    "all_all": config["DEFAULT"]["all_overall_score"]
+    "loc_day": config["COLUMN"]["location_daily_score"],
+    "loc_mon": config["COLUMN"]["location_month_score"],
+    "loc_all": config["COLUMN"]["location_overall_score"],
+    "all_day": config["COLUMN"]["all_daily_score"],
+    "all_mon": config["COLUMN"]["all_month_score"],
+    "all_all": config["COLUMN"]["all_overall_score"]
   }
 
 # スコア出力時のラベル(カラム名)を設定
 def get_score_out_columns(config):
   return [
-    config["DEFAULT"]["output_location_score"],
-    config["DEFAULT"]["output_all_score"]
+    config["COLUMN"]["output_location_score"],
+    config["COLUMN"]["output_all_score"]
   ]
 
 # 日ごと、月ごと、全期間に合わせてスコアを格納
@@ -141,7 +141,7 @@ def get_stats(input_file, config):
   try:
     stats = pd.read_csv(
       input_file,
-      encoding=config["DEFAULT"]["output_encoding"]
+      encoding=config["CSV"]["output_encoding"]
     )
 
   except FileNotFoundError:
@@ -467,10 +467,10 @@ def calc_score(max_input_file, min_input_file, location, target_temp, config):
 # CSV出力前にフォーマットを整える
 def make_csv_result(result, comparison, location, score, config):
   # 地点マスタを取得
-  location_dir = Path(config["DEFAULT"]["location_input_dir"])
+  location_dir = Path(config["PATH"]["location_dir"])
   location_file = (location_dir / "locations.csv")
   try:
-    df = pd.read_csv(location_file, encoding=config["DEFAULT"]["output_encoding"])
+    df = pd.read_csv(location_file, encoding=config["CSV"]["output_encoding"])
 
   except FileNotFoundError as e:
     logging.error(str(e))
@@ -509,7 +509,7 @@ def save_csv(df, output_file, config):
   df.to_csv(
     output_file,
     index=False,
-    encoding=config["DEFAULT"]["output_encoding"]
+    encoding=config["CSV"]["output_encoding"]
   )
 
 
@@ -520,20 +520,20 @@ def main():
   config = load_config()
 
   logging.basicConfig(
-    filename=config["DEFAULT"]["log_file"],
+    filename=config["LOG"]["log_file"],
     level=logging.INFO,
-    encoding=config["DEFAULT"]["log_encoding"],
+    encoding=config["LOG"]["log_encoding"],
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
   )
 
   logging.info("========== START ==========")
 
   input_dir = Path(
-    config["DEFAULT"]["input_dir"]
+    config["PATH"]["data_dir"]
   )
 
   stats_dir = Path(
-    config["DEFAULT"]["stats_input_dir"]
+    config["PATH"]["stats_input_dir"]
   )
 
   # Avg Stats
@@ -546,7 +546,7 @@ def main():
   min_stats_file = (stats_dir / "min_stats.csv")
 
   output_dir = Path(
-    config["DEFAULT"]["result_dir"]
+    config["PATH"]["result_dir"]
   )
 
   # --------------------

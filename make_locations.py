@@ -1,13 +1,38 @@
+import configparser
 import re
 import requests
 import csv
+import sys
+from pathlib import Path
 from bs4 import BeautifulSoup
 
-BASE_URL = "https://www.data.jma.go.jp/stats/etrn/select/prefecture.php"
+# --------------------
+# 設定ファイル
+# --------------------
+def load_config():
+  config = configparser.ConfigParser()
+
+  config.read(
+    "config.ini",
+    encoding="utf-8"
+  )
+
+  return config
 
 
+# --------------------
+# 地点マスタ生成のための情報取得
+# --------------------
+def get_prec_no(input_file):
+  try:
+    with open(input_file, encoding="utf-8", newline="") as f:
+      reader = csv.DictReader(f)
+      return list(reader)
 
-def get_stations(prec_no, prefecture):
+  except FileNotFoundError:
+    raise FileNotFoundError("prec_no参照CSVがありません")
+
+def get_stations(prec_no, prefecture, config):
   params = {
     "prec_no": prec_no,
     "block_no": "",
@@ -17,7 +42,10 @@ def get_stations(prec_no, prefecture):
     "view": "",
   }
 
-  response = requests.get(BASE_URL, params=params, timeout=30)
+  response = requests.get(
+    config["URL"]["jma_url"], params=params,
+    timeout=int(config["DOWNLOAD"]["request_timeout"])
+  )
   response.raise_for_status()
 
   soup = BeautifulSoup(response.text, "html.parser")
@@ -94,10 +122,28 @@ def get_stations(prec_no, prefecture):
 
   return stations
 
-def load_amdmaster(path):
+def load_amdmaster(path, config):
+  path = Path(path)
+
+  # ファイルがなければダウンロード
+  if not path.exists():
+    print(f"amdmaster.index4 が見つかりません。ダウンロードします: {path}")
+
+    response = requests.get(
+      config["URL"]["amdmaster_url"],
+      timeout=int(config["DOWNLOAD"]["request_timeout"])
+    )
+    response.raise_for_status()
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(path, "wb") as f:
+      f.write(response.content)
+
+  # amdmaster.index4を読み込む
   master = {}
 
-  with open(path, encoding="shift_jis", newline="") as f:
+  with open(path, encoding=config["CSV"]["input_encoding"], newline="") as f:
     reader = csv.reader(f)
 
     # ヘッダー2行をスキップ
@@ -122,33 +168,11 @@ def load_amdmaster(path):
 
   return master
 
-
-def main():
-  all_stations = {}
-  with open("prec_no.csv", encoding="utf-8", newline="") as f:
-    reader = csv.DictReader(f)
-
-    for row in reader:
-      prec_no = row["番号"]
-      prefecture = row["府県名"]
-      print(f"\n===== prec_no={prec_no} =====")
-
-      stations = get_stations(prec_no, prefecture)
-
-      for key, station in stations.items():
-        all_stations[key] = station
-
-  amdmaster = load_amdmaster("amdmaster.index4")
-
-  for station in all_stations.values():
-    name = station["name"]
-
-    if name in amdmaster:
-      station["name_en"] = amdmaster[name]["name_en"]
-      station["end_date"] = amdmaster[name]["end_date"]
-
-
-  with open("location.csv", "w", encoding="utf-8-sig", newline="") as f:
+# --------------------
+# 地点マスタ出力
+# --------------------
+def save_location_master(output_file, all_stations, config):
+  with open(output_file, "w", encoding=config["CSV"]["output_encoding"], newline="") as f:
     writer = csv.DictWriter(
       f,
       fieldnames=[
@@ -167,6 +191,51 @@ def main():
     )
     writer.writeheader()
     writer.writerows(all_stations.values())
+
+
+# --------------------
+# main処理
+# --------------------
+def main():
+  config = load_config()
+
+  input_dir = Path(config["PATH"]["input_dir"])
+  output_dir = Path(config["PATH"]["location_dir"])
+
+  prec_no_file = (input_dir / "prec_no.csv")
+  amdmaster_file = (input_dir / "amdmaster.index4")
+  locations_file = (output_dir / "locations.csv")
+
+  all_stations = {}
+
+  try:
+    reader = get_prec_no(prec_no_file)
+
+    for row in reader:
+        prec_no = row["番号"]
+        prefecture = row["府県名"]
+        print(f"\n===== prec_no={prec_no} =====")
+
+        stations = get_stations(prec_no, prefecture, config)
+
+        for key, station in stations.items():
+          all_stations[key] = station
+
+  except FileNotFoundError as e:
+    print(f"エラー: {e}")
+    sys.exit(1)
+
+  amdmaster = load_amdmaster(amdmaster_file, config)
+
+  for station in all_stations.values():
+    name = station["name"]
+
+    if name in amdmaster:
+      station["name_en"] = amdmaster[name]["name_en"]
+      station["end_date"] = amdmaster[name]["end_date"]
+
+  save_location_master(locations_file, all_stations, config)
+
 
 if __name__ == "__main__":
   main()
