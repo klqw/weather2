@@ -34,7 +34,8 @@ def load_locations(location, prefecture, config):
       reader = csv.DictReader(f)
       matches = [
         row for row in reader
-        if row["name"] == location and row["prefecture"] == prefecture
+        if row["name"] == location and row["prefecture_name"] == prefecture or
+        row["name_en"] == location and row["prefecture_name_en"] == prefecture
       ]
 
   except FileNotFoundError:
@@ -52,7 +53,7 @@ def load_locations(location, prefecture, config):
 # --------------------
 # 指定した地点のデータCSV取得
 # --------------------
-def download_csv(loc_data, next_start_date, config):
+def manual_download_csv(loc_data, next_start_date, config):
 
   # チャンク(データ取得年数間隔)
   chunk_years = int(config["DOWNLOAD"]["chunk_years"])
@@ -188,7 +189,7 @@ def main():
 
     # 古いデータから15年ごとにDLを行う
     while True:
-      next_start_date = download_csv(location_data, next_start_date, config)
+      next_start_date = manual_download_csv(location_data, next_start_date, config)
 
       if next_start_date > end_date:
         break

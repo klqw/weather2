@@ -32,9 +32,9 @@ def get_prec_no(input_file):
   except FileNotFoundError:
     raise FileNotFoundError("prec_no参照CSVがありません")
 
-def get_stations(prec_no, prefecture, config):
+def get_stations(prec_no, config):
   params = {
-    "prec_no": prec_no,
+    "prec_no": prec_no["prec_no"],
     "block_no": "",
     "year": "",
     "month": "",
@@ -116,7 +116,8 @@ def get_stations(prec_no, prefecture, config):
       "latitude": lat_deg + lat_min / 60,
       "longitude": lon_deg + lon_min / 60,
       "elevation": elevation,
-      "prefecture": prefecture,
+      "prefecture_name": prec_no["prefecture_name"],
+      "prefecture_name_en": prec_no["prefecture_name_en"],
       "start_date": start_date
     }
 
@@ -155,7 +156,7 @@ def load_amdmaster(path, config):
         continue
 
       name = row[1].strip()
-      name_en = row[3].strip().lower()
+      name_en = row[3].strip().lower().replace("-", "")
       end_date = row[24].strip()
 
       if not name:
@@ -184,7 +185,8 @@ def save_location_master(output_file, all_stations, config):
         "longitude",
         "elevation",
         "name_en",
-        "prefecture",
+        "prefecture_name",
+        "prefecture_name_en",
         "start_date",
         "end_date"
       ]
@@ -212,11 +214,11 @@ def main():
     reader = get_prec_no(prec_no_file)
 
     for row in reader:
-        prec_no = row["番号"]
-        prefecture = row["府県名"]
-        print(f"\n===== prec_no={prec_no} =====")
+        prec_no = row["prec_no"]
+        prefecture_name = row["prefecture_name"]
+        print(f"\n===== prec_no={prec_no} prefecture_name={prefecture_name} =====")
 
-        stations = get_stations(prec_no, prefecture, config)
+        stations = get_stations(row, config)
 
         for key, station in stations.items():
           all_stations[key] = station
