@@ -91,7 +91,7 @@ def manual_download_csv(loc_data, next_start_date, config):
 
   # 出力ファイル名設定
   filename = (
-    f'{loc_data["name_en"]}_'
+    f'{loc_data["name_en"]}_{loc_data["station_type"]}{loc_data["block_no"]}_'
     f'{start_date.year}-{chunk_end_date.year}.csv'
   )
 
@@ -103,6 +103,7 @@ def manual_download_csv(loc_data, next_start_date, config):
   # CSV取得URL設定
   url = config["URL"]["dl_url"]
 
+  # DL情報設定
   data = {
     "stationNumList": json.dumps([station_num_list]),
     "aggrgPeriod": "1",
@@ -116,7 +117,7 @@ def manual_download_csv(loc_data, next_start_date, config):
       ["501",""],   # 日照時間
       ["605",""]    # 合計積雪量
     ]),
-    "interAnnualType": "2",
+    "interAnnualType": "1",
     "ymdList": json.dumps(ymd_list),
     "optionNumList": "[]",
     "downloadFlag": "true",

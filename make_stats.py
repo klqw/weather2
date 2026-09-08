@@ -1,5 +1,6 @@
 import configparser
 import logging
+import csv
 import sys
 from pathlib import Path
 import pandas as pd
@@ -17,6 +18,10 @@ def load_config():
 
   return config
 
+
+# --------------------
+# 全地点の元データ取得
+# --------------------
 def load_csv_files(data_dir, config):
 
   files = list(data_dir.glob("*.csv"))
@@ -28,17 +33,27 @@ def load_csv_files(data_dir, config):
 
   for file in files:
     logging.info("読み込み: %s", file)
+
+    # ファイル名からlocation, codeを取得
+    location = file.name.split("_")[0]
+    code = file.name.split("_")[1]
+
+    usecols_map = {
+      "s": [0, 1, 5, 8, 11, 14, 17, 21, 25],
+      "a": [0, 1, 4, 7, 10, 13, 16, 19, 22]
+    }
+    usecols = usecols_map[code[0]]
+    
     df = pd.read_csv(
       file,
       encoding=config["CSV"]["input_encoding"],
       skiprows=[0, 1, 2, 4, 5],
-      usecols=[0, 1, 4, 7]
+      usecols=usecols
     )
 
-    # ファイル名からlocationを取得
-    location = file.name.split("_")[0]
-    # locationカラムを追加
+    # location, codeカラムを追加
     df["location"] = location
+    df["code"] = code
 
     dfs.append(df)
 
@@ -63,50 +78,55 @@ def prepare_date(df):
   return df
 
 # 表示項目をまとめる
-def get_temp_columns(config):
+def get_weather_columns(config):
   return [
-    config["COLUMN"]["avg_tmp"],
-    config["COLUMN"]["max_tmp"],
-    config["COLUMN"]["min_tmp"]
+    config["COLUMN"]["avg_tmp"],      # 平均気温(℃)
+    config["COLUMN"]["max_tmp"],      # 最高気温(℃)
+    config["COLUMN"]["min_tmp"],      # 最低気温(℃)
+    config["COLUMN"]["precip"],       # 降水量の合計(mm)
+    config["COLUMN"]["avg_wind"],     # 平均風速(m/s)
+    config["COLUMN"]["sunshine"],     # 日照時間(時間)
+    config["COLUMN"]["max_snow"],     # 最深積雪(cm)
+    config["COLUMN"]["avg_humidity"]  # 平均湿度(％)
   ]
 
 # locationごと & 月ごとの平均気温を全取得
 def location_month_avg(df, config):
   return (
-    df.groupby(["location", "月"])[
-      get_temp_columns(config)
+    df.groupby(["location", "code", "月"])[
+      get_weather_columns(config)
     ].mean().reset_index()
   )
 
 # locationごと & 月・日ごとの平均気温を全取得
 def location_daily_avg(df, config):
   return (
-    df.groupby(["location", "月", "日"])[
-      get_temp_columns(config)
+    df.groupby(["location", "code", "月", "日"])[
+      get_weather_columns(config)
     ].mean().reset_index()
   )
 
 # locationごと & 全期間の平均気温を取得
 def location_overall_avg(df, config):
   return (
-    df.groupby("location")[
-      get_temp_columns(config)
+    df.groupby(["location", "code"])[
+      get_weather_columns(config)
     ].mean().reset_index()
   )
 
 # locationごと & 月・日ごとの各気温の最高値を全取得
 def location_daily_max(df, config):
   return (
-    df.groupby(["location", "月", "日"])[
-      get_temp_columns(config)
+    df.groupby(["location", "code", "月", "日"])[
+      get_weather_columns(config)
     ].max().reset_index()
   )
 
 # locationごと & 月・日ごとの各気温の最低値を全取得
 def location_daily_min(df, config):
   return (
-    df.groupby(["location", "月", "日"])[
-      get_temp_columns(config)
+    df.groupby(["location", "code", "月", "日"])[
+      get_weather_columns(config)
     ].min().reset_index()
   )
 
