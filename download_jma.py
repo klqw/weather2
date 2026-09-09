@@ -2,6 +2,7 @@ import argparse
 import configparser
 import csv
 import time
+import logging
 import sys
 from pathlib import Path
 from datetime import date, datetime, timedelta
@@ -37,6 +38,7 @@ def load_locations(location, prefecture, config):
         if row["name"] == location and row["prefecture_name"] == prefecture or
         row["name_en"] == location and row["prefecture_name_en"] == prefecture
       ]
+      logging.info("手動ダウンロード対象 地点名: %s, 都府県名: %s", location, prefecture)
 
   except FileNotFoundError:
     raise FileNotFoundError("地点マスタCSVがありません")
@@ -132,26 +134,40 @@ def manual_download_csv(loc_data, next_start_date, config):
     "ymdLiteral": "1",
   }
 
-  response = requests.post(
-    url, data=data,
-    timeout=int(config["DOWNLOAD"]["request_timeout"])
-  )
+  try:
+    # DL処理
+    response = requests.post(
+      url, data=data,
+      timeout=int(config["DOWNLOAD"]["request_timeout"])
+    )
 
-  response.raise_for_status()
+    response.raise_for_status()
 
-  with open(output_file, "wb") as f:
-    f.write(response.content)
-    print(f"DL完了: {filename}")
+    with open(output_file, "wb") as f:
+      f.write(response.content)
 
-  return next_start_date
+    print(f"ダウンロード完了: {filename}")
+    logging.info("ダウンロード完了: %s", filename)
+
+    return next_start_date
+
+  except requests.RequestException as e:
+    raise RuntimeError(f"ファイルのダウンロードに失敗しました: {filename}") from e
 
 
 # --------------------
 # main処理
 # --------------------
 def main():
-
   config = load_config()
+
+  logging.basicConfig(
+    filename=config["LOG"]["log_file"],
+    level=logging.INFO,
+    encoding=config["LOG"]["log_encoding"],
+    format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
+  )
+
   # 取得開始日時初期設定
   next_start_date = date(1, 1, 1)
   # 取得可能日時設定
@@ -169,17 +185,18 @@ def main():
   parser.add_argument(
     "--location",
     required=True,
-    help="地点名を漢字で指定"
+    help="地点名を漢字または英字で指定"
   )
 
   parser.add_argument(
     "--prefecture",
     required=True,
-    help="都府県名を漢字で指定"
+    help="都府県名を漢字または英字で指定"
   )
 
   args = parser.parse_args()
 
+  logging.info("========== START ==========")
 
   # --------------------
   # CSVのDL処理
@@ -197,9 +214,13 @@ def main():
 
       time.sleep(download_interval)
 
-  except (FileNotFoundError, ValueError) as e:
+  except (FileNotFoundError, ValueError, RuntimeError) as e:
     print(f"エラー: {e}")
+    logging.error(str(e))
     sys.exit(1)
+
+  finally:
+    logging.info("==========  END  ==========")
 
 
 if __name__ == "__main__":

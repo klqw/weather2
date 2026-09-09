@@ -1,6 +1,7 @@
 import argparse
 import configparser
 import logging
+import csv
 import sys
 from pathlib import Path
 import pandas as pd
@@ -18,9 +19,9 @@ def load_config():
 
   return config
 
-def load_csv_files(data_dir, location, config):
+def load_csv_files(data_dir, location_code, config):
 
-  files = list(data_dir.glob(f"{location}_*.csv"))
+  files = list(data_dir.glob(f"*_{location_code}_*.csv"))
 
   if not files:
     raise FileNotFoundError("CSVファイルがありません")
@@ -29,34 +30,52 @@ def load_csv_files(data_dir, location, config):
 
   for file in files:
     logging.info("読み込み: %s", file)
+
+    # 気象台, アメダスそれぞれの使用カラム指定
+    usecols_map = {
+      "s": [0, 1, 5, 8, 11, 14, 17, 21, 25],
+      "a": [0, 1, 4, 7, 10, 13, 16, 19, 22]
+    }
+    usecols = usecols_map[location_code[0]]
+
     df = pd.read_csv(
       file,
       encoding=config["CSV"]["input_encoding"],
       skiprows=[0, 1, 2, 4, 5],
-      usecols=[0, 1, 4, 7]
+      usecols=usecols
     )
     dfs.append(df)
 
   return pd.concat(dfs, ignore_index=True)
 
+
 # --------------------
 # argバリデーション
 # --------------------
 
-# location
-def validate_location(data_dir, location):
-  files = list(data_dir.glob("*.csv"))
+# location, prefecture
+def validate_location(location, prefecture, config):
+  location_dir = Path(config["PATH"]["location_dir"])
+  locations_file = (location_dir / "locations.csv")
 
-  if not files:
-    raise FileNotFoundError("CSVファイルがありません")
+  try:
+    with open(locations_file, encoding=config["CSV"]["output_encoding"], newline="") as f:
+      reader = csv.DictReader(f)
+      matches = [
+        row for row in reader
+        if row["name"] == location and row["prefecture_name"] == prefecture or
+        row["name_en"] == location and row["prefecture_name_en"] == prefecture
+      ]
 
-  locations = set()
+  except FileNotFoundError:
+    raise FileNotFoundError("地点マスタCSVがありません")
 
-  for file in files:
-    locations.add(file.name.split("_")[0])
-
-  if location not in locations:
-    raise ValueError(f"不正なlocationです: {location}")
+  if len(matches) != 1:
+    raise ValueError(f"地点名と都府県名の組み合わせが不正です 地点名: {location}, 都府県名: {prefecture}")
+  
+  # 取得対象が1件だった場合は取得対象地点のstationNumを返す
+  logging.info("取得対象 地点名: %s, 都府県名: %s", location, prefecture)
+  return matches[0]["station_type"] + matches[0]["block_no"]
 
 # date
 def validate_date(df, date):
@@ -465,30 +484,31 @@ def calc_score(max_input_file, min_input_file, location, target_temp, config):
 # --------------------
 
 # CSV出力前にフォーマットを整える
-def make_csv_result(result, comparison, location, score, config):
+def make_csv_result(result, comparison, location_code, score, config):
   # 地点マスタを取得
   location_dir = Path(config["PATH"]["location_dir"])
   location_file = (location_dir / "locations.csv")
+  station_type = location_code[0]
+  block_no = int(location_code[1:])
+
   try:
     df = pd.read_csv(location_file, encoding=config["CSV"]["output_encoding"])
 
   except FileNotFoundError as e:
-    logging.error(str(e))
-    print(f"エラー: {e}")
-    logging.info("==========  END  ==========")
-    sys.exit(1)
+    raise FileNotFoundError("CSVファイルがありません")
 
   # 地点名取得
   location_name = df.loc[
-    df["location"] == location,
-    "location_name"
+    (df["station_type"] == station_type) &
+    (df["block_no"] == block_no),
+    ["name", "prefecture_name"]
   ].iloc[0]
-  # print(location_name)
 
   # 出力用DataFrameに 比較対象, 地点, スコアを追加
   result = result.copy()
   result.insert(0, "比較対象", comparison)
-  result.insert(1, "地点", location_name)
+  result.insert(1, "地点", location_name["name"])
+  result.insert(2, "都府県", location_name["prefecture_name"])
   result = result.reset_index()
   result = result.rename(columns={"index": "項目"})
   result = result.join(
@@ -501,16 +521,20 @@ def make_csv_result(result, comparison, location, score, config):
 
 # 整えたフォーマットをCSVで出力
 def save_csv(df, output_file, config):
-  output_file.parent.mkdir(
-    parents=True,
-    exist_ok=True
-  )
+  try:
+    output_file.parent.mkdir(
+      parents=True,
+      exist_ok=True
+    )
 
-  df.to_csv(
-    output_file,
-    index=False,
-    encoding=config["CSV"]["output_encoding"]
-  )
+    df.to_csv(
+      output_file,
+      index=False,
+      encoding=config["CSV"]["output_encoding"]
+    )
+
+  except OSError as e:
+    raise RuntimeError(f"CSVの出力に失敗しました: {output_file}") from e
 
 
 # --------------------
@@ -525,8 +549,6 @@ def main():
     encoding=config["LOG"]["log_encoding"],
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
   )
-
-  logging.info("========== START ==========")
 
   input_dir = Path(
     config["PATH"]["data_dir"]
@@ -560,7 +582,13 @@ def main():
   parser.add_argument(
     "--location",
     required=True,
-    help="分析対象場所を英数字で指定"
+    help="地点名を漢字または英字で指定"
+  )
+
+  parser.add_argument(
+    "--prefecture",
+    required=True,
+    help="都府県名を漢字または英字で指定"
   )
 
   parser.add_argument(
@@ -571,15 +599,18 @@ def main():
 
   args = parser.parse_args()
 
-  # --------------------
-  # CSV読み込み
-  # --------------------
+  logging.info("========== START ==========")
+
   try:
-    # args.locationのチェック
-    validate_location(input_dir, args.location)
+    # --------------------
+    # CSV読み込み
+    # --------------------
+
+    # args.location, args.prefectureのチェック
+    location_code = validate_location(args.location, args.prefecture, config)
 
     # CSV読み込み
-    df = load_csv_files(input_dir, args.location, config)
+    df = load_csv_files(input_dir, location_code, config)
     logging.info("CSV読み込み完了")
 
     # dfの「年月日」をdatetimeに変換
@@ -588,82 +619,87 @@ def main():
     # args.dateのチェック (OKだったら対象日を取得)
     target_date = validate_date(df, args.date)
     logging.info("date=%s", target_date)
-    
+
+    # --------------------
+    # 分析
+    # --------------------
+
+    # 対象日の実測値を取得
+    target_temp = get_target_temp(df, target_date)
+    # print(target_temp)
+
+    # 日ごとの平均値比較結果を取得
+    result_daily = daily_diff(daily_stats_file, args.location, target_temp, config)
+    # print(result_daily)
+
+    # 月ごとの平均値比較結果を取得
+    result_month = month_diff(month_stats_file, args.location, target_temp, config)
+    # print(result_month)
+
+    # 全期間の平均値比較結果を取得
+    result_overall = all_diff(all_stats_file, args.location, target_temp, config)
+    # print(result_overall)
+
+    # 指定地点 & 指定日 からスコアを算出
+    score = calc_score(max_stats_file, min_stats_file, args.location, target_temp, config)
+    # print(score)
+
+    # スコアのラベル(カラム名)を設定
+    label = get_score_calc_columns(config)
+
+    # 日ごとのスコアをそれぞれ格納
+    score_daily = extract_score(score, label, "daily", config)
+
+    # 月ごとのスコアをそれぞれ格納
+    score_month = extract_score(score, label, "month", config)
+
+    # 全期間のスコアをそれぞれ格納
+    score_overall = extract_score(score, label, "overall", config)
+
+    # --------------------
+    # 出力
+    # --------------------
+
+    # 「比較対象」カラムの値設定
+    comparison_month = str(target_date.month) + "月で比較"  # 月
+    comparison_daily = str(target_date.month) + "月" + str(target_date.day) + "日で比較"  # 日
+    comparison_overall = "全期間で比較" # 全期間
+
+    # CSV出力用にフォーマット整形
+    output_result_daily = make_csv_result(
+      result_daily, comparison_daily, location_code, score_daily, config
+    )
+    output_result_month = make_csv_result(
+      result_month, comparison_month, location_code, score_month, config
+    )
+    output_result_overall = make_csv_result(
+      result_overall, comparison_overall, location_code, score_overall, config
+    )
+
+    result = pd.concat([
+      output_result_daily,
+      output_result_month,
+      output_result_overall
+    ], ignore_index=True)
+    # print(result)
+
+    # 出力ファイル名設定
+    filename = (f"{args.location}_{location_code}_{args.date}.csv")
+    # 出力パス設定
+    output_file = (output_dir / filename)
+
+    # CSV生成
+    save_csv(result, output_file, config)
+    print(f"\n出力先: {output_file}")
+    logging.info("出力完了: %s", output_file)
+
   except (FileNotFoundError, ValueError) as e:
     logging.error(str(e))
     print(f"エラー: {e}")
-    logging.info("==========  END  ==========")
     sys.exit(1)
 
-  # --------------------
-  # 分析
-  # --------------------
-
-  # 対象日の実測値を取得
-  target_temp = get_target_temp(df, target_date)
-  # print(target_temp)
-
-  # 日ごとの平均値比較結果を取得
-  result_daily = daily_diff(daily_stats_file, args.location, target_temp, config)
-  # print(result_daily)
-
-  # 月ごとの平均値比較結果を取得
-  result_month = month_diff(month_stats_file, args.location, target_temp, config)
-  # print(result_month)
-
-  # 全期間の平均値比較結果を取得
-  result_overall = all_diff(all_stats_file, args.location, target_temp, config)
-  # print(result_overall)
-
-  # 指定地点 & 指定日 からスコアを算出
-  score = calc_score(max_stats_file, min_stats_file, args.location, target_temp, config)
-  # print(score)
-
-  # スコアのラベル(カラム名)を設定
-  label = get_score_calc_columns(config)
-
-  # 日ごとのスコアをそれぞれ格納
-  score_daily = extract_score(score, label, "daily", config)
-
-  # 月ごとのスコアをそれぞれ格納
-  score_month = extract_score(score, label, "month", config)
-
-  # 全期間のスコアをそれぞれ格納
-  score_overall = extract_score(score, label, "overall", config)
-
-  # --------------------
-  # 出力
-  # --------------------
-
-  # 「比較対象」カラムの値設定
-  comparison_month = str(target_date.month) + "月で比較"  # 月
-  comparison_daily = str(target_date.month) + "月" + str(target_date.day) + "日で比較"  # 日
-  comparison_overall = "全期間で比較" # 全期間
-
-  # CSV出力用にフォーマット整形
-  output_result_daily = make_csv_result(
-    result_daily, comparison_daily, args.location, score_daily, config
-  )
-  output_result_month = make_csv_result(
-    result_month, comparison_month, args.location, score_month, config
-  )
-  output_result_overall = make_csv_result(
-    result_overall, comparison_overall, args.location, score_overall, config
-  )
-
-  result = pd.concat([
-    output_result_daily,
-    output_result_month,
-    output_result_overall
-  ], ignore_index=True)
-  # print(result)
-
-  filename = args.location + "_" + args.date + ".csv"
-  output_file = (output_dir / filename)
-  save_csv(result, output_file, config)
-  print(f"\n出力先: {output_file}")
-  logging.info("出力完了: %s", output_file)
-  logging.info("==========  END  ==========")
+  finally:
+    logging.info("==========  END  ==========")
 
 
 if __name__ == "__main__":

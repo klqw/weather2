@@ -1,6 +1,5 @@
 import configparser
 import logging
-import csv
 import sys
 from pathlib import Path
 import pandas as pd
@@ -136,16 +135,20 @@ def location_daily_min(df, config):
 
 # 整えたフォーマットをCSVで出力
 def save_csv(df, output_file, config):
-  output_file.parent.mkdir(
-    parents=True,
-    exist_ok=True
-  )
+  try:
+    output_file.parent.mkdir(
+      parents=True,
+      exist_ok=True
+    )
 
-  df.to_csv(
-    output_file,
-    index=False,
-    encoding=config["CSV"]["output_encoding"]
-  )
+    df.to_csv(
+      output_file,
+      index=False,
+      encoding=config["CSV"]["output_encoding"]
+    )
+
+  except OSError as e:
+    raise RuntimeError(f"CSVの出力に失敗しました: {output_file}") from e
 
 
 # --------------------
@@ -161,82 +164,84 @@ def main():
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
   )
 
-  logging.info("========== START ==========")
-
   input_dir = Path(config["PATH"]["data_dir"])
   output_dir = Path(config["PATH"]["output_dir"])
 
-  # --------------------
-  # CSV読み込み
-  # --------------------
-  try:
-    df = load_csv_files(input_dir, config)
+  logging.info("========== START ==========")
 
-  except FileNotFoundError as e:
+  try:
+    # --------------------
+    # CSV読み込み
+    # --------------------
+    df = load_csv_files(input_dir, config)
+    logging.info("CSV読み込み完了")
+
+    # --------------------
+    # データ加工
+    # --------------------
+
+    # 日付関連の前処理
+    df = prepare_date(df)
+
+    # 月ごと、日ごと、全期間の平均値比較結果を取得
+    month_stats = location_month_avg(df, config)
+    # print(month_stats)
+
+    daily_stats = location_daily_avg(df, config)
+    # print(daily_stats)
+
+    overall_stats = location_overall_avg(df, config)
+    # print(overall_stats)
+
+    # locationごと & 月・日ごとの各気温の最高値を全取得
+    daily_max_stats = location_daily_max(df, config)
+
+    # locationごと & 月・日ごとの各気温の最低値を全取得
+    daily_min_stats = location_daily_min(df, config)
+
+    # --------------------
+    # 出力
+    # --------------------
+
+    # 出力ファイル名指定
+    month_filename = "month_stats.csv"
+    daily_filename = "daily_stats.csv"
+    all_filename = "overall_stats.csv"
+    max_filename = "max_stats.csv"
+    min_filename = "min_stats.csv"
+
+    # 出力ファイルパス指定
+    month_output_file = (output_dir / config["PATH"]["stats_dir"] / month_filename)
+    daily_output_file = (output_dir / config["PATH"]["stats_dir"] / daily_filename)
+    all_output_file = (output_dir / config["PATH"]["stats_dir"] / all_filename)
+    max_output_file = (output_dir / config["PATH"]["stats_dir"] / max_filename)
+    min_output_file = (output_dir / config["PATH"]["stats_dir"] / min_filename)
+
+    # 月、月・日、全期間のCSV出力
+    save_csv(month_stats, month_output_file, config)
+    save_csv(daily_stats, daily_output_file, config)
+    save_csv(overall_stats, all_output_file, config)
+    save_csv(daily_max_stats, max_output_file, config)
+    save_csv(daily_min_stats, min_output_file, config)
+    print(f"\n月ごとのCSV出力先: {month_output_file}")
+    print(f"月・日ごとのCSV出力先: {daily_output_file}")
+    print(f"全期間のCSV出力先: {all_output_file}")
+    print(f"最高値のCSV出力先: {max_output_file}")
+    print(f"最低値のCSV出力先: {min_output_file}")
+    logging.info("出力完了(month): %s", month_output_file)
+    logging.info("出力完了(daily): %s", daily_output_file)
+    logging.info("出力完了(overall): %s", all_output_file)
+    logging.info("出力完了(max): %s", max_output_file)
+    logging.info("出力完了(min): %s", min_output_file)
+
+  except (FileNotFoundError, RuntimeError) as e:
     logging.error(str(e))
     print(f"エラー: {e}")
     sys.exit(1)
 
-  logging.info("CSV読み込み完了")
+  finally:
+    logging.info("==========  END  ==========")
 
-  # --------------------
-  # データ加工
-  # --------------------
-
-  # 日付関連の前処理
-  df = prepare_date(df)
-
-  # 月ごと、日ごと、全期間の平均値比較結果を取得
-  month_stats = location_month_avg(df, config)
-  # print(month_stats)
-
-  daily_stats = location_daily_avg(df, config)
-  # print(daily_stats)
-
-  overall_stats = location_overall_avg(df, config)
-  # print(overall_stats)
-
-  # locationごと & 月・日ごとの各気温の最高値を全取得
-  daily_max_stats = location_daily_max(df, config)
-
-  # locationごと & 月・日ごとの各気温の最低値を全取得
-  daily_min_stats = location_daily_min(df, config)
-
-  # --------------------
-  # 出力
-  # --------------------
-
-  # 出力ファイル名指定
-  month_filename = "month_stats.csv"
-  daily_filename = "daily_stats.csv"
-  all_filename = "overall_stats.csv"
-  max_filename = "max_stats.csv"
-  min_filename = "min_stats.csv"
-
-  # 出力ファイルパス指定
-  month_output_file = (output_dir / config["PATH"]["stats_dir"] / month_filename)
-  daily_output_file = (output_dir / config["PATH"]["stats_dir"] / daily_filename)
-  all_output_file = (output_dir / config["PATH"]["stats_dir"] / all_filename)
-  max_output_file = (output_dir / config["PATH"]["stats_dir"] / max_filename)
-  min_output_file = (output_dir / config["PATH"]["stats_dir"] / min_filename)
-
-  # 月、月・日、全期間のCSV出力
-  save_csv(month_stats, month_output_file, config)
-  save_csv(daily_stats, daily_output_file, config)
-  save_csv(overall_stats, all_output_file, config)
-  save_csv(daily_max_stats, max_output_file, config)
-  save_csv(daily_min_stats, min_output_file, config)
-  print(f"\n月ごとのCSV出力先: {month_output_file}")
-  print(f"月・日ごとのCSV出力先: {daily_output_file}")
-  print(f"全期間のCSV出力先: {all_output_file}")
-  print(f"最高値のCSV出力先: {max_output_file}")
-  print(f"最低値のCSV出力先: {min_output_file}")
-  logging.info("出力完了(month): %s", month_output_file)
-  logging.info("出力完了(daily): %s", daily_output_file)
-  logging.info("出力完了(overall): %s", all_output_file)
-  logging.info("出力完了(max): %s", max_output_file)
-  logging.info("出力完了(min): %s", min_output_file)
-  logging.info("==========  END  ==========")
 
 if __name__ == "__main__":
   main()

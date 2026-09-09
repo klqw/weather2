@@ -2,6 +2,7 @@ import configparser
 import re
 import requests
 import csv
+import logging
 import sys
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -30,7 +31,7 @@ def get_prec_no(input_file):
       return list(reader)
 
   except FileNotFoundError:
-    raise FileNotFoundError("prec_no参照CSVがありません")
+    raise FileNotFoundError("prec_no参照CSVがありません: %s", input_file)
 
 def get_stations(prec_no, config):
   params = {
@@ -96,7 +97,7 @@ def get_stations(prec_no, config):
     elif station_type == "a":
       start_date = "1976-01-01"
     else:
-      start_date = "9999-99-99"
+      start_date = "2001-01-01"
 
     # 区分より気温を計測していない地点を除外
     if flags[1:4] == ["0", "0", "0"]:
@@ -128,18 +129,32 @@ def load_amdmaster(path, config):
 
   # ファイルがなければダウンロード
   if not path.exists():
-    print(f"amdmaster.index4 が見つかりません。ダウンロードします: {path}")
+    print(f"amdmaster.index4が見つからないため、ダウンロードします: {path}")
+    logging.info("amdmaster.index4が見つからないため、ダウンロードします: %s", path)
 
-    response = requests.get(
-      config["URL"]["amdmaster_url"],
-      timeout=int(config["DOWNLOAD"]["request_timeout"])
-    )
-    response.raise_for_status()
+    try:
+      response = requests.get(
+        config["URL"]["amdmaster_url"],
+        timeout=int(config["DOWNLOAD"]["request_timeout"])
+      )
+      response.raise_for_status()
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+      path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(path, "wb") as f:
-      f.write(response.content)
+      with open(path, "wb") as f:
+        f.write(response.content)
+
+      logging.info("amdmaster.index4のダウンロード完了")
+
+    except requests.RequestException as e:
+      raise RuntimeError(
+        f"amdmaster.index4のダウンロードに失敗しました: {config["URL"]["amdmaster_url"]}"
+      ) from e
+
+    except OSError as e:
+      raise RuntimeError(
+        "amdmaster.index4の保存に失敗しました"
+      ) from e
 
   # amdmaster.index4を読み込む
   master = {}
@@ -173,26 +188,31 @@ def load_amdmaster(path, config):
 # 地点マスタ出力
 # --------------------
 def save_location_master(output_file, all_stations, config):
-  with open(output_file, "w", encoding=config["CSV"]["output_encoding"], newline="") as f:
-    writer = csv.DictWriter(
-      f,
-      fieldnames=[
-        "station_type",
-        "block_no",
-        "name",
-        "kana",
-        "latitude",
-        "longitude",
-        "elevation",
-        "name_en",
-        "prefecture_name",
-        "prefecture_name_en",
-        "start_date",
-        "end_date"
-      ]
-    )
-    writer.writeheader()
-    writer.writerows(all_stations.values())
+  try:
+    with open(output_file, "w", encoding=config["CSV"]["output_encoding"], newline="") as f:
+      writer = csv.DictWriter(
+        f,
+        fieldnames=[
+          "station_type",
+          "block_no",
+          "name",
+          "kana",
+          "latitude",
+          "longitude",
+          "elevation",
+          "name_en",
+          "prefecture_name",
+          "prefecture_name_en",
+          "start_date",
+          "end_date"
+        ]
+      )
+
+      writer.writeheader()
+      writer.writerows(all_stations.values())
+
+  except OSError as e:
+    raise RuntimeError(f"地点マスタのCSV出力に失敗しました: {output_file}") from e
 
 
 # --------------------
@@ -200,6 +220,13 @@ def save_location_master(output_file, all_stations, config):
 # --------------------
 def main():
   config = load_config()
+
+  logging.basicConfig(
+    filename=config["LOG"]["log_file"],
+    level=logging.INFO,
+    encoding=config["LOG"]["log_encoding"],
+    format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
+  )
 
   input_dir = Path(config["PATH"]["input_dir"])
   output_dir = Path(config["PATH"]["location_dir"])
@@ -210,33 +237,46 @@ def main():
 
   all_stations = {}
 
+  logging.info("========== START ==========")
+
   try:
     reader = get_prec_no(prec_no_file)
+    logging.info("prec_no参照CSV読み込み完了: %s", prec_no_file)
 
     for row in reader:
         prec_no = row["prec_no"]
         prefecture_name = row["prefecture_name"]
-        print(f"\n===== prec_no={prec_no} prefecture_name={prefecture_name} =====")
 
         stations = get_stations(row, config)
+        print(f"prec_no: {prec_no} prefecture_name: {prefecture_name} を取得 ({len(stations)}地点)")
+        logging.info(
+          "prec_no: %s prefecture_name: %s を取得 (%d地点)",
+          prec_no, prefecture_name, len(stations)
+        )
 
         for key, station in stations.items():
           all_stations[key] = station
+    
+    amdmaster = load_amdmaster(amdmaster_file, config)
 
-  except FileNotFoundError as e:
+    for station in all_stations.values():
+      name = station["name"]
+
+      if name in amdmaster:
+        station["name_en"] = amdmaster[name]["name_en"]
+        station["end_date"] = amdmaster[name]["end_date"]
+
+    save_location_master(locations_file, all_stations, config)
+    print(f"\n出力先: {locations_file}")
+    logging.info("出力完了: %s", locations_file)
+
+  except (FileNotFoundError, RuntimeError) as e:
+    logging.error(str(e))
     print(f"エラー: {e}")
     sys.exit(1)
 
-  amdmaster = load_amdmaster(amdmaster_file, config)
-
-  for station in all_stations.values():
-    name = station["name"]
-
-    if name in amdmaster:
-      station["name_en"] = amdmaster[name]["name_en"]
-      station["end_date"] = amdmaster[name]["end_date"]
-
-  save_location_master(locations_file, all_stations, config)
+  finally:
+    logging.info("==========  END  ==========")
 
 
 if __name__ == "__main__":
