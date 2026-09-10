@@ -5,6 +5,7 @@ import csv
 import sys
 from pathlib import Path
 import pandas as pd
+import numpy as np
 
 # --------------------
 # 設定ファイル
@@ -71,7 +72,9 @@ def validate_location(location, prefecture, config):
     raise FileNotFoundError("地点マスタCSVがありません")
 
   if len(matches) != 1:
-    raise ValueError(f"地点名と都府県名の組み合わせが不正です 地点名: {location}, 都府県名: {prefecture}")
+    raise ValueError(
+      f"地点名と都府県名の組み合わせが不正です 地点名: {location}, 都府県名: {prefecture}"
+    )
   
   # 取得対象が1件だった場合は取得対象地点のstationNumを返す
   logging.info("取得対象 地点名: %s, 都府県名: %s", location, prefecture)
@@ -111,13 +114,44 @@ def prepare_date(df):
 
   return df
 
-# 表示項目をまとめる
+# 表示項目の設定
 def get_temp_columns(config):
   return [
-    config["COLUMN"]["avg_tmp"],
-    config["COLUMN"]["max_tmp"],
-    config["COLUMN"]["min_tmp"]
+    config["COLUMN"]["avg_tmp"],      # 平均気温(℃)
+    config["COLUMN"]["max_tmp"],      # 最高気温(℃)
+    config["COLUMN"]["min_tmp"],      # 最低気温(℃)
+    config["COLUMN"]["avg_humidity"], # 平均湿度(％)
+    config["COLUMN"]["sunshine"],     # 日照時間(時間)
+    config["COLUMN"]["precip"],       # 降水量の合計(mm)
+    config["COLUMN"]["avg_wind"],     # 平均風速(m/s)
+    config["COLUMN"]["max_snow"]      # 最深積雪(cm)
   ]
+
+# 差分の計算(NaN値対策)
+def calc_diff(actual, base):
+  result = actual.copy()
+
+  for column in actual.index:
+    if pd.isna(actual[column]) or pd.isna(base[column]):
+      result[column] = np.nan
+
+    else:
+      result[column] = actual[column] - base[column]
+
+  return result
+
+# スコアの計算(NaN値対策)
+def calc_score(base_value, max_value, min_value):
+  result = base_value.copy()
+
+  for column in base_value.index:
+    if pd.isna(base_value[column]) or pd.isna(max_value[column]) or pd.isna(min_value[column]):
+      result[column] = 0
+
+    else:
+      result[column] = (base_value[column] - min_value[column]) / (max_value[column] - min_value[column]) * 99 + 1
+
+  return result
 
 # スコア計算時のラベル(カラム名)を設定
 def get_score_calc_columns(config):
@@ -216,7 +250,7 @@ def month_diff(input_file, location, target_temp, config):
     get_temp_columns(config)
   ].iloc[0]
 
-  # ターゲット地点の指定日の月に対する平均値を比較ように加工
+  # ターゲット地点の指定日の月に対する平均値を比較用に加工
   base_target = target_avg[
     get_temp_columns(config)
   ].iloc[0]
@@ -224,9 +258,9 @@ def month_diff(input_file, location, target_temp, config):
   return pd.DataFrame({
     "実測値": actual,
     "地点基準値": base_target,
-    "差(地点)": actual - base_target,
+    "差(地点)": calc_diff(actual, base_target),
     "全体基準値": base_all,
-    "差(全体)": actual - base_all
+    "差(全体)": calc_diff(actual, base_all)
   }).round(1)
 
 # 指定日と日ごとの比較
@@ -275,9 +309,9 @@ def daily_diff(input_file, location, target_temp, config):
   return pd.DataFrame({
     "実測値": actual,
     "地点基準値": base_target,
-    "差(地点)": actual - base_target,
+    "差(地点)": calc_diff(actual, base_target),
     "全体基準値": base_all,
-    "差(全体)": actual - base_all
+    "差(全体)": calc_diff(actual, base_all)
   }).round(1)
 
 # 指定日と全期間の比較
@@ -314,13 +348,13 @@ def all_diff(input_file, location, target_temp, config):
   return pd.DataFrame({
     "実測値": actual,
     "地点基準値": base_target,
-    "差(地点)": actual - base_target,
+    "差(地点)": calc_diff(actual ,base_target),
     "全体基準値": base_all,
-    "差(全体)": actual - base_all
+    "差(全体)": calc_diff(actual, base_all)
   }).round(1)
   
-# 指定日の最大値と最小値からスコアを計算
-def calc_score(max_input_file, min_input_file, location, target_temp, config):
+# 指定日の最大値と最小値からスコア計算したdfを出力
+def make_score_df(max_input_file, min_input_file, location, target_temp, config):
   # Statsの最大値CSVファイルを取得
   max_df = get_stats(max_input_file, config)
 
@@ -468,13 +502,14 @@ def calc_score(max_input_file, min_input_file, location, target_temp, config):
   # スコアのラベル(カラム名)を設定
   label = get_score_calc_columns(config)
 
+  # スコア計算
   result = pd.DataFrame({
-    label["loc_day"]: (base - min_loc_day) / (max_loc_day - min_loc_day) * 99 + 1,
-    label["loc_mon"]: (base - min_loc_mon) / (max_loc_mon - min_loc_mon) * 99 + 1,
-    label["loc_all"]: (base - min_loc_all) / (max_loc_all - min_loc_all) * 99 + 1,
-    label["all_day"]: (base - min_day) / (max_day - min_day) * 99 + 1,
-    label["all_mon"]: (base - min_mon) / (max_mon - min_mon) * 99 + 1,
-    label["all_all"]: (base - min_all) / (max_all - min_all) * 99 + 1
+    label["loc_day"]: calc_score(base, max_loc_day, min_loc_day),
+    label["loc_mon"]: calc_score(base, max_loc_mon, min_loc_mon),
+    label["loc_all"]: calc_score(base, max_loc_all, min_loc_all),
+    label["all_day"]: calc_score(base, max_day, min_day),
+    label["all_mon"]: calc_score(base, max_mon, min_mon),
+    label["all_all"]: calc_score(base, max_all, min_all)
   }).round().astype(int)
 
   return result
@@ -489,10 +524,13 @@ def make_csv_result(result, comparison, location_code, score, config):
   location_dir = Path(config["PATH"]["location_dir"])
   location_file = (location_dir / "locations.csv")
   station_type = location_code[0]
-  block_no = int(location_code[1:])
+  block_no = location_code[1:]
 
   try:
-    df = pd.read_csv(location_file, encoding=config["CSV"]["output_encoding"])
+    df = pd.read_csv(
+      location_file, dtype={"block_no": str},
+      encoding=config["CSV"]["output_encoding"]
+    )
 
   except FileNotFoundError as e:
     raise FileNotFoundError("CSVファイルがありません")
@@ -640,8 +678,8 @@ def main():
     result_overall = all_diff(all_stats_file, args.location, target_temp, config)
     # print(result_overall)
 
-    # 指定地点 & 指定日 からスコアを算出
-    score = calc_score(max_stats_file, min_stats_file, args.location, target_temp, config)
+    # 指定地点 & 指定日 から計算したスコアを取得
+    score = make_score_df(max_stats_file, min_stats_file, args.location, target_temp, config)
     # print(score)
 
     # スコアのラベル(カラム名)を設定

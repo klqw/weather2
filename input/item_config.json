@@ -1,0 +1,98 @@
+{
+  "平均気温(℃)": {
+    "unit": "℃",
+    "low_label": "Cold",
+    "high_label": "Hot",
+    "colors": [
+      "#1565c0",
+      "#6fc3df",
+      "#17e975",
+      "#f5a623",
+      "#d32f2f"
+    ]
+  },
+  "最高気温(℃)": {
+    "unit": "℃",
+    "low_label": "Cold",
+    "high_label": "Hot",
+    "colors": [
+      "#1565c0",
+      "#6fc3df",
+      "#17e975",
+      "#f5a623",
+      "#d32f2f"
+    ]
+  },
+  "最低気温(℃)": {
+    "unit": "℃",
+    "low_label": "Cold",
+    "high_label": "Hot",
+    "colors": [
+      "#1565c0",
+      "#6fc3df",
+      "#17e975",
+      "#f5a623",
+      "#d32f2f"
+    ]
+  },
+  "平均湿度(％)": {
+    "unit": "％",
+    "low_label": "Dry",
+    "high_label": "Wet",
+    "colors": [
+      "#e4d612",
+      "#7ee044",
+      "#17e975",
+      "#2dbfa3",
+      "#4294d0"
+    ]
+  },
+  "日照時間(時間)": {
+    "unit": "時間",
+    "low_label": "Cloudy",
+    "high_label": "Sunny",
+    "colors": [
+      "#9e9e9e",
+      "#b8b8b8",
+      "#d0b978",
+      "#e2ad4c",
+      "#f5a623"
+    ]
+  },
+  "降水量の合計(mm)": {
+    "unit": "mm",
+    "low_label": "Low",
+    "high_label": "High",
+    "colors": [
+      "#b3e5fc",
+      "#81cde8",
+      "#4aa9d0",
+      "#287fb5",
+      "#14558a"
+    ]
+  },
+  "平均風速(m/s)": {
+    "unit": "m/s",
+    "low_label": "Calm",
+    "high_label": "Windy",
+    "colors": [
+      "#e1bee7",
+      "#c77dcc",
+      "#9c4dcc",
+      "#7b2cbf",
+      "#4a148c"
+    ]
+  },
+  "最深積雪(cm)": {
+    "unit": "cm",
+    "low_label": "Low",
+    "high_label": "High",
+    "colors": [
+      "#9e9e9e",
+      "#bdbdbd",
+      "#d6d6d6",
+      "#eeeeee",
+      "#ffffff"
+    ]
+  }
+}
