@@ -55,7 +55,7 @@ def load_csv_files(data_dir, location_code, config):
 # --------------------
 
 # location, prefecture
-def validate_location(location, prefecture, config):
+def validate_location(location, prefecture, stats_file, config):
   location_dir = Path(config["PATH"]["location_dir"])
   locations_file = (location_dir / "locations.csv")
 
@@ -64,21 +64,36 @@ def validate_location(location, prefecture, config):
       reader = csv.DictReader(f)
       matches = [
         row for row in reader
-        if row["name"] == location and row["prefecture_name"] == prefecture or
-        row["name_en"] == location and row["prefecture_name_en"] == prefecture
+        if (
+          (row["name"] == location and row["prefecture_name"] == prefecture)
+          or
+          (row["name_en"] == location and row["prefecture_name_en"] == prefecture)
+        )
       ]
+
+    if len(matches) != 1:
+      raise ValueError(
+        f"地点名と都府県名の組み合わせが不正です 地点名: {location}, 都府県名: {prefecture}"
+      )
+
+    location_code = matches[0]["station_type"] + matches[0]["block_no"]
+
+    df = get_stats(stats_file, config)
+    df = df[
+      df["code"] == location_code
+    ]
+
+    if df.empty:
+      raise ValueError(
+        f"指定された地点のstatsが登録されていません 地点名: {location}, 都府県名: {prefecture}"
+      )
+
+    # 取得対象が1件かつstats登録済みだった場合は取得対象地点のstationNumを返す
+    logging.info("取得対象 地点名: %s, 都府県名: %s", location, prefecture)
+    return location_code
 
   except FileNotFoundError:
     raise FileNotFoundError("地点マスタCSVがありません")
-
-  if len(matches) != 1:
-    raise ValueError(
-      f"地点名と都府県名の組み合わせが不正です 地点名: {location}, 都府県名: {prefecture}"
-    )
-  
-  # 取得対象が1件だった場合は取得対象地点のstationNumを返す
-  logging.info("取得対象 地点名: %s, 都府県名: %s", location, prefecture)
-  return matches[0]["station_type"] + matches[0]["block_no"]
 
 # date
 def validate_date(df, date):
@@ -122,8 +137,8 @@ def get_temp_columns(config):
     config["COLUMN"]["min_tmp"],      # 最低気温(℃)
     config["COLUMN"]["avg_humidity"], # 平均湿度(％)
     config["COLUMN"]["sunshine"],     # 日照時間(時間)
-    config["COLUMN"]["precip"],       # 降水量の合計(mm)
     config["COLUMN"]["avg_wind"],     # 平均風速(m/s)
+    config["COLUMN"]["precip"],       # 降水量の合計(mm)
     config["COLUMN"]["max_snow"]      # 最深積雪(cm)
   ]
 
@@ -146,6 +161,9 @@ def calc_score(base_value, max_value, min_value):
 
   for column in base_value.index:
     if pd.isna(base_value[column]) or pd.isna(max_value[column]) or pd.isna(min_value[column]):
+      result[column] = 0
+
+    elif max_value[column] == min_value[column]:
       result[column] = 0
 
     else:
@@ -215,7 +233,7 @@ def get_target_temp(df, target_date):
 # --------------------
 
 # 指定日と月ごとの比較
-def month_diff(input_file, location, target_temp, config):
+def month_diff(input_file, location_code, target_temp, config):
   # StatsのCSVファイルを取得
   df = get_stats(input_file, config)
 
@@ -228,7 +246,7 @@ def month_diff(input_file, location, target_temp, config):
   ]
 
   # 全地点の指定日の月に対する平均値を取得
-  all_avg = df.groupby(["location", "月"])[
+  all_avg = df.groupby(["code", "月"])[
     get_temp_columns(config)
   ].mean()
   all_avg = all_avg.mean().to_frame().T
@@ -236,7 +254,7 @@ def month_diff(input_file, location, target_temp, config):
 
   # ターゲット地点の指定日の月に対する平均値を取得
   target_avg = df[
-    df["location"] == location
+    df["code"] == location_code
   ]
   # print(target_avg)
 
@@ -264,7 +282,7 @@ def month_diff(input_file, location, target_temp, config):
   }).round(1)
 
 # 指定日と日ごとの比較
-def daily_diff(input_file, location, target_temp, config):
+def daily_diff(input_file, location_code, target_temp, config):
   # StatsのCSVファイルを取得
   df = get_stats(input_file, config)
 
@@ -279,7 +297,7 @@ def daily_diff(input_file, location, target_temp, config):
   ]
 
   # 全地点の指定日の月・日に対する平均値を取得
-  all_avg = df.groupby(["location", "月", "日"])[
+  all_avg = df.groupby(["code", "月", "日"])[
     get_temp_columns(config)
   ].mean()
   all_avg = all_avg.mean().to_frame().T
@@ -287,7 +305,7 @@ def daily_diff(input_file, location, target_temp, config):
 
   # ターゲット地点の指定日の月・日に対する平均値を取得
   target_avg = df[
-    df["location"] == location
+    df["code"] == location_code
   ]
   # print(target_avg)
 
@@ -315,7 +333,7 @@ def daily_diff(input_file, location, target_temp, config):
   }).round(1)
 
 # 指定日と全期間の比較
-def all_diff(input_file, location, target_temp, config):
+def all_diff(input_file, location_code, target_temp, config):
   # StatsのCSVファイルを取得
   df = get_stats(input_file, config)
   # print(df)
@@ -326,7 +344,7 @@ def all_diff(input_file, location, target_temp, config):
 
   # ターゲット地点の平均値を取得
   target_avg = df[
-    df["location"] == location
+    df["code"] == location_code
   ]
   # print(target_avg)
 
@@ -354,7 +372,7 @@ def all_diff(input_file, location, target_temp, config):
   }).round(1)
   
 # 指定日の最大値と最小値からスコア計算したdfを出力
-def make_score_df(max_input_file, min_input_file, location, target_temp, config):
+def make_score(max_input_file, min_input_file, location_code, target_temp, config):
   # Statsの最大値CSVファイルを取得
   max_df = get_stats(max_input_file, config)
 
@@ -367,7 +385,7 @@ def make_score_df(max_input_file, min_input_file, location, target_temp, config)
 
   # 指定地点 & 指定日の最大値を取得
   max_location_daily_df = max_df[
-    (max_df["location"] == location) &
+    (max_df["code"] == location_code) &
     (max_df["月"] == target_month) &
     (max_df["日"] == target_day)
   ]
@@ -378,7 +396,7 @@ def make_score_df(max_input_file, min_input_file, location, target_temp, config)
 
   # 指定地点 & 指定月の最大値を取得
   max_location_month_df = max_df[
-    (max_df["location"] == location) &
+    (max_df["code"] == location_code) &
     (max_df["月"] == target_month)
   ]
   # スコア計算用に加工
@@ -388,7 +406,7 @@ def make_score_df(max_input_file, min_input_file, location, target_temp, config)
 
   # 指定地点 & 全期間の最大値を取得
   max_location_all_df = max_df[
-    (max_df["location"] == location)
+    (max_df["code"] == location_code)
   ]
   # スコア計算用に加工
   max_loc_all = max_location_all_df[
@@ -421,7 +439,7 @@ def make_score_df(max_input_file, min_input_file, location, target_temp, config)
 
   # 指定地点 & 指定日の最小値を取得
   min_location_daily_df = min_df[
-    (min_df["location"] == location) &
+    (min_df["code"] == location_code) &
     (min_df["月"] == target_month) &
     (min_df["日"] == target_day)
   ]
@@ -432,7 +450,7 @@ def make_score_df(max_input_file, min_input_file, location, target_temp, config)
 
   # 指定地点 & 指定月の最小値を取得
   min_location_month_df = min_df[
-    (min_df["location"] == location) &
+    (min_df["code"] == location_code) &
     (min_df["月"] == target_month)
   ]
   # スコア計算用に加工
@@ -442,7 +460,7 @@ def make_score_df(max_input_file, min_input_file, location, target_temp, config)
 
   # 指定地点 & 全期間の最小値を取得
   min_location_all_df = min_df[
-    (min_df["location"] == location)
+    (min_df["code"] == location_code)
   ]
   # スコア計算用に加工
   min_loc_all = min_location_all_df[
@@ -645,7 +663,7 @@ def main():
     # --------------------
 
     # args.location, args.prefectureのチェック
-    location_code = validate_location(args.location, args.prefecture, config)
+    location_code = validate_location(args.location, args.prefecture, all_stats_file, config)
 
     # CSV読み込み
     df = load_csv_files(input_dir, location_code, config)
@@ -667,19 +685,19 @@ def main():
     # print(target_temp)
 
     # 日ごとの平均値比較結果を取得
-    result_daily = daily_diff(daily_stats_file, args.location, target_temp, config)
+    result_daily = daily_diff(daily_stats_file, location_code, target_temp, config)
     # print(result_daily)
 
     # 月ごとの平均値比較結果を取得
-    result_month = month_diff(month_stats_file, args.location, target_temp, config)
+    result_month = month_diff(month_stats_file, location_code, target_temp, config)
     # print(result_month)
 
     # 全期間の平均値比較結果を取得
-    result_overall = all_diff(all_stats_file, args.location, target_temp, config)
+    result_overall = all_diff(all_stats_file, location_code, target_temp, config)
     # print(result_overall)
 
     # 指定地点 & 指定日 から計算したスコアを取得
-    score = make_score_df(max_stats_file, min_stats_file, args.location, target_temp, config)
+    score = make_score(max_stats_file, min_stats_file, location_code, target_temp, config)
     # print(score)
 
     # スコアのラベル(カラム名)を設定

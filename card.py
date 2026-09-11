@@ -68,6 +68,18 @@ def hex_to_rgb(hex_color):
 
   return r, g, b
 
+# スコアによってバッジの表示/非表示を設定
+def make_score_marker(score, color):
+  if score == 0:
+    return ""
+
+  return f"""
+    <span class="marker"
+      style="left: {score}%; background-color: {color};">
+      {score}
+    </span>
+  """
+
 # スコアごとにマーカーとバッジの背景色設定
 def score_to_color(score, item_config):
   """
@@ -161,12 +173,14 @@ def create_html(csv_file, config):
   <html lang="ja">
   <head>
     <meta charset="UTF-8">
-    <title>{display_date} {location_name["name"]}</title>
+    <title>{display_date} {location_name["name"]} - {location_name["prefecture_name"]}</title>
     <link rel="stylesheet" href="../style.css">
   </head>
 
   <body>
-    <h1>{display_date} {location_name["name"]}</h1>
+    <header class="header">
+      <h1>{display_date} {location_name["name"]} - {location_name["prefecture_name"]}</h1>
+    </header>
   """
   for comparison, group in groups:
     html += f"""
@@ -176,6 +190,7 @@ def create_html(csv_file, config):
 
     # CSVの各行からカードを作成
     for i, (_, row) in enumerate(group.iterrows()):
+      # HTML表示用(文字列)
       item = row["項目"]
       actual = format_value(row["実測値"])
       location_avg = format_value(row["地点基準値"])
@@ -185,12 +200,21 @@ def create_html(csv_file, config):
       location_score = int(row["地点スコア"])
       overall_score = int(row["全体スコア"])
 
+      # HTML表示用(色)
       actual_color = score_to_color(location_score, item_config[item])
       location_score_color = score_to_color(location_score, item_config[item])
       overall_score_color = score_to_color(overall_score, item_config[item])
-      # TODO ここは応急処置なので後で修正予定
+
       location_diff_color = diff_to_color(float(row["差(地点)"]))
       overall_diff_color = diff_to_color(float(row["差(全体)"]))
+
+      # Low, Highラベル色設定
+      low_label_color = item_config[item]["colors"][0]
+      high_label_color = item_config[item]["colors"][4]
+
+      # マーカーに表示するバッジの設定
+      location_marker = make_score_marker(location_score, location_score_color)
+      overall_marker = make_score_marker(overall_score, overall_score_color)
 
       html += f"""
 
@@ -218,32 +242,36 @@ def create_html(csv_file, config):
 
         <div class="score-row">
           <span class="score-label">地点</span>
-          <span class="cold">{item_config[item]["low_label"]}</span>
+          <span class="low" style="color: {low_label_color};">
+            {item_config[item]["low_label"]}
+          </span>
 
           <div class="bar">
             <div class="bar-fill"
               style="width: {location_score}%; background-color: {location_score_color};"></div>
-            <span class="marker"
-              style="left: {location_score}%; background-color: {location_score_color};">
-              {location_score}
-            </span>
+            {location_marker}
           </div>
 
-          <span class="hot">{item_config[item]["high_label"]}</span>
+          <span class="high" style="color: {high_label_color};">
+            {item_config[item]["high_label"]}
+          </span>
         </div>
 
         <div class="score-row">
           <span class="score-label">全体</span>
-          <span class="cold">{item_config[item]["low_label"]}</span>
+          <span class="low" style="color: {low_label_color};">
+            {item_config[item]["low_label"]}
+          </span>
+
           <div class="bar">
             <div class="bar-fill"
               style="width: {overall_score}%; background-color: {overall_score_color};"></div>
-            <span class="marker"
-              style="left: {overall_score}%; background-color: {overall_score_color};">
-              {overall_score}
-            </span>
+            {overall_marker}
           </div>
-          <span class="hot">{item_config[item]["high_label"]}</span>
+
+          <span class="high" style="color: {high_label_color};">
+            {item_config[item]["high_label"]}
+          </span>
         </div>
 
       </div>

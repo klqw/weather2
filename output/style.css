@@ -2,15 +2,23 @@ body {
   font-family: sans-serif;
   font-size: 0.8em;
   max-width: 900px;
-  margin: 40px auto;
+  margin: 20px auto;
   background-color: #fffbea;
 }
 
-h1 {
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #fffbea;
+  padding: 12px 20px;
+}
+
+.header h1 {
   color: #4a4635;
   /* color: #24231e; */
   font-size: 2em;
-  margin-bottom: 10px;
+  margin: 0;
   letter-spacing: 0.05em;
 }
 
@@ -113,7 +121,7 @@ hr {
 .bar {
   position: relative;
   flex: 1;
-  height: 25px;
+  height: 20px;
   background: repeating-linear-gradient(
     to right,
     #ddd 0,
@@ -141,8 +149,8 @@ hr {
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -152,18 +160,16 @@ hr {
   color: white;
 }
 
-.hot {
+.high {
   font-weight: bold;
-  color: #d32f2f;
   margin-left: 10px;
   letter-spacing: 0.05em;
 }
 
-.cold {
+.low {
   font-weight: bold;
-  color: #1565c0;
   margin-right: 5px;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.05em;
 }
 
 .positive {

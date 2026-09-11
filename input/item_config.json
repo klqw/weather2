@@ -40,7 +40,7 @@
     "low_label": "Dry",
     "high_label": "Wet",
     "colors": [
-      "#e4d612",
+      "#d0a83a",
       "#7ee044",
       "#17e975",
       "#2dbfa3",
@@ -54,21 +54,9 @@
     "colors": [
       "#9e9e9e",
       "#b8b8b8",
-      "#d0b978",
-      "#e2ad4c",
-      "#f5a623"
-    ]
-  },
-  "降水量の合計(mm)": {
-    "unit": "mm",
-    "low_label": "Low",
-    "high_label": "High",
-    "colors": [
-      "#b3e5fc",
-      "#81cde8",
-      "#4aa9d0",
-      "#287fb5",
-      "#14558a"
+      "#d0ad62",
+      "#e18f28",
+      "#e87500"
     ]
   },
   "平均風速(m/s)": {
@@ -76,11 +64,23 @@
     "low_label": "Calm",
     "high_label": "Windy",
     "colors": [
-      "#e1bee7",
-      "#c77dcc",
-      "#9c4dcc",
-      "#7b2cbf",
-      "#4a148c"
+      "#8fd3a8",
+      "#5fbd82",
+      "#3aa866",
+      "#25894f",
+      "#176b3c"
+    ]
+  },
+  "降水量の合計(mm)": {
+    "unit": "mm",
+    "low_label": "Low",
+    "high_label": "High",
+    "colors": [
+      "#8fd3ee",
+      "#6fc0df",
+      "#45a3cb",
+      "#287fb5",
+      "#14558a"
     ]
   },
   "最深積雪(cm)": {
@@ -88,11 +88,11 @@
     "low_label": "Low",
     "high_label": "High",
     "colors": [
-      "#9e9e9e",
-      "#bdbdbd",
-      "#d6d6d6",
-      "#eeeeee",
-      "#ffffff"
+      "#d5a9dc",
+      "#bf70c7",
+      "#9847c5",
+      "#7829bd",
+      "#4a148c"
     ]
   }
 }
