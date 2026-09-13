@@ -6,6 +6,9 @@ import logging
 import sys
 from pathlib import Path
 from bs4 import BeautifulSoup
+from datetime import date
+import psycopg
+from db import get_connection
 
 # --------------------
 # 設定ファイル
@@ -13,8 +16,11 @@ from bs4 import BeautifulSoup
 def load_config():
   config = configparser.ConfigParser()
 
+  base_dir = Path(__file__).resolve().parent
+  config_file = base_dir / "config" / "config.ini"
+
   config.read(
-    "config.ini",
+    config_file,
     encoding="utf-8"
   )
 
@@ -93,11 +99,20 @@ def get_stations(prec_no, config):
 
     # station_typeによってstart_dateを設定
     if station_type == "s":
-      start_date = "1873-01-01"
+      start_date = date(1873, 1, 1)
     elif station_type == "a":
-      start_date = "1976-01-01"
+      start_date = date(1976, 1, 1)
     else:
-      start_date = "2001-01-01"
+      start_date = date(2001, 1, 1)
+
+    # end_date設定
+    end_date_year = int(args[15])
+    end_date_month = int(args[16])
+    end_date_day = int(args[17])
+    if args[15] == "9999":
+      end_date = date(9999, 12, 31)
+    else:
+      end_date = date(end_date_year, end_date_month, end_date_day)
 
     # 区分より気温を計測していない地点を除外
     if flags[1:4] == ["0", "0", "0"]:
@@ -119,7 +134,8 @@ def get_stations(prec_no, config):
       "elevation": elevation,
       "prefecture_name": prec_no["prefecture_name"],
       "prefecture_name_en": prec_no["prefecture_name_en"],
-      "start_date": start_date
+      "start_date": start_date,
+      "end_date": end_date
     }
 
   return stations
@@ -172,23 +188,62 @@ def load_amdmaster(path, config):
 
       name = row[1].strip()
       name_en = row[3].strip().lower().replace("-", "")
-      end_date = row[24].strip()
 
       if not name:
         continue
 
       master[name] = {
-        "name_en": name_en,
-        "end_date": end_date
+        "name_en": name_en
       }
 
   return master
 
 # --------------------
-# 地点マスタ出力
+# 地点マスタDB登録
 # --------------------
 def save_location_master(output_file, all_stations, config):
+  sql = """
+    INSERT INTO locations (
+      station_type,
+      block_no,
+      name,
+      kana,
+      latitude,
+      longitude,
+      elevation,
+      name_en,
+      prefecture_name,
+      prefecture_name_en,
+      start_date,
+      end_date
+    )
+    VALUES (
+      %(station_type)s,
+      %(block_no)s,
+      %(name)s,
+      %(kana)s,
+      %(latitude)s,
+      %(longitude)s,
+      %(elevation)s,
+      %(name_en)s,
+      %(prefecture_name)s,
+      %(prefecture_name_en)s,
+      %(start_date)s,
+      %(end_date)s
+    );
+  """
   try:
+    with get_connection(config) as conn:
+      with conn.cursor() as cur:
+        for station in all_stations.values():
+          cur.execute(sql, station)
+
+    print(f"locationsテーブルへの地点マスタ登録が完了しました。登録件数: {len(all_stations)}件")
+    logging.info(
+      "locationsテーブルへの地点マスタ登録が完了しました。登録件数: %d件",
+      len(all_stations)
+    )
+
     with open(output_file, "w", encoding=config["CSV"]["output_encoding"], newline="") as f:
       writer = csv.DictWriter(
         f,
@@ -211,8 +266,49 @@ def save_location_master(output_file, all_stations, config):
       writer.writeheader()
       writer.writerows(all_stations.values())
 
+  except psycopg.Error as e:
+    raise RuntimeError("地点マスタのDB登録に失敗しました") from e
+
   except OSError as e:
     raise RuntimeError(f"地点マスタのCSV出力に失敗しました: {output_file}") from e
+
+# DB登録前の地点マスタ不正値チェック
+def validate_stations(all_stations):
+  required_keys = [
+    "station_type",
+    "block_no",
+    "name",
+    "kana",
+    "latitude",
+    "longitude",
+    "elevation",
+    "name_en",
+    "prefecture_name",
+    "prefecture_name_en",
+    "start_date",
+    "end_date"
+  ]
+
+  errors = []
+
+  for station in all_stations.values():
+    missing_keys = [
+      key for key in required_keys
+      if key not in station
+    ]
+
+    if missing_keys:
+      errors.append(
+        f"{station.get('name')} "
+        f"{station.get('block_no')} "
+        f"不足項目: {missing_keys}"
+      )
+
+  if errors:
+    raise ValueError(
+      "地点マスタに必須項目がありません\n"
+      + "\n".join(errors)
+    )
 
 
 # --------------------
@@ -264,13 +360,16 @@ def main():
 
       if name in amdmaster:
         station["name_en"] = amdmaster[name]["name_en"]
-        station["end_date"] = amdmaster[name]["end_date"]
+      else:
+        station["name_en"] = None
 
+    # DB登録前に必須項目の格納チェック
+    validate_stations(all_stations)
     save_location_master(locations_file, all_stations, config)
     print(f"\n出力先: {locations_file}")
     logging.info("出力完了: %s", locations_file)
 
-  except (FileNotFoundError, RuntimeError) as e:
+  except (FileNotFoundError, RuntimeError, ValueError) as e:
     logging.error(str(e))
     print(f"エラー: {e}")
     sys.exit(1)

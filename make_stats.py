@@ -10,8 +10,11 @@ import pandas as pd
 def load_config():
   config = configparser.ConfigParser()
 
+  base_dir = Path(__file__).resolve().parent
+  config_file = base_dir / "config" / "config.ini"
+
   config.read(
-    "config.ini",
+    config_file,
     encoding="utf-8"
   )
 
