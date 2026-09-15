@@ -230,7 +230,18 @@ def save_location_master(output_file, all_stations, config):
       %(prefecture_name_en)s,
       %(start_date)s,
       %(end_date)s
-    );
+    )
+    ON CONFLICT (station_type, block_no)
+    DO UPDATE SET
+      name = EXCLUDED.name,
+      kana = EXCLUDED.kana,
+      latitude = EXCLUDED.latitude,
+      longitude = EXCLUDED.longitude,
+      elevation = EXCLUDED.elevation,
+      name_en = EXCLUDED.name_en,
+      prefecture_name = EXCLUDED.prefecture_name,
+      prefecture_name_en = EXCLUDED.prefecture_name_en,
+      end_date = EXCLUDED.end_date;
   """
   try:
     with get_connection(config) as conn:

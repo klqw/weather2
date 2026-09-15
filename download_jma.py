@@ -91,6 +91,10 @@ def get_auto_download_location(config):
       complete,
       last_observation_update
     FROM locations
+    WHERE
+      complete = FALSE
+      OR
+      end_date >= CURRENT_DATE
     ORDER BY
       CASE
         WHEN station_type = 's' AND complete = FALSE THEN 1

@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 import pandas as pd
 import psycopg
+from datetime import date, timedelta
 from db import get_connection
 
 # --------------------
@@ -28,7 +29,7 @@ def load_csv_files(data_dir, location_code, config):
 
     df = pd.read_csv(
       file,
-      parse_dates=[config["COLUMN"]["date"]],
+      parse_dates=[config["COLUMN"]["observed_date"]],
       encoding=config["CSV"]["input_encoding"],
       skiprows=[0, 1, 2, 4, 5],
       usecols=usecols
@@ -90,19 +91,19 @@ def register_jma(location_data, config):
 
   # 戻り値初期設定
   first_registered_date = None
-  last_registered_date = None
+  last_registered_date = date.today() - timedelta(days=1)
   registered_count = 0
 
   # df全空判定用
   weather_columns = [
-    config["COLUMN"]["avg_tmp"],
-    config["COLUMN"]["max_tmp"],
-    config["COLUMN"]["min_tmp"],
+    config["COLUMN"]["avg_temp"],
+    config["COLUMN"]["max_temp"],
+    config["COLUMN"]["min_temp"],
     config["COLUMN"]["avg_humidity"],
-    config["COLUMN"]["sunshine"],
-    config["COLUMN"]["avg_wind"],
-    config["COLUMN"]["precip"],
-    config["COLUMN"]["max_snow"]
+    config["COLUMN"]["sunshine_hours"],
+    config["COLUMN"]["avg_wind_speed"],
+    config["COLUMN"]["precipitation"],
+    config["COLUMN"]["max_snow_depth"]
   ]
 
   try:
@@ -115,7 +116,7 @@ def register_jma(location_data, config):
         for _, row in df.iterrows():
 
           observed_date = row[
-            config["COLUMN"]["date"]
+            config["COLUMN"]["observed_date"]
           ].date()
 
           if row[weather_columns].isna().all():
@@ -124,14 +125,14 @@ def register_jma(location_data, config):
           observation_data = {
             "location_id": location_id,
             "observed_date": observed_date,
-            "avg_temp": to_db_value(row[config["COLUMN"]["avg_tmp"]]),
-            "max_temp": to_db_value(row[config["COLUMN"]["max_tmp"]]),
-            "min_temp": to_db_value(row[config["COLUMN"]["min_tmp"]]),
+            "avg_temp": to_db_value(row[config["COLUMN"]["avg_temp"]]),
+            "max_temp": to_db_value(row[config["COLUMN"]["max_temp"]]),
+            "min_temp": to_db_value(row[config["COLUMN"]["min_temp"]]),
             "avg_humidity": to_db_value(row[config["COLUMN"]["avg_humidity"]]),
-            "sunshine_hours": to_db_value(row[config["COLUMN"]["sunshine"]]),
-            "avg_wind_speed": to_db_value(row[config["COLUMN"]["avg_wind"]]),
-            "precipitation": to_db_value(row[config["COLUMN"]["precip"]]),
-            "max_snow_depth": to_db_value(row[config["COLUMN"]["max_snow"]])
+            "sunshine_hours": to_db_value(row[config["COLUMN"]["sunshine_hours"]]),
+            "avg_wind_speed": to_db_value(row[config["COLUMN"]["avg_wind_speed"]]),
+            "precipitation": to_db_value(row[config["COLUMN"]["precipitation"]]),
+            "max_snow_depth": to_db_value(row[config["COLUMN"]["max_snow_depth"]])
           }
 
           cur.execute(sql, observation_data)
@@ -143,13 +144,6 @@ def register_jma(location_data, config):
             observed_date < first_registered_date
           ):
             first_registered_date = observed_date
-
-          if (
-            last_registered_date is None
-            or
-            observed_date > last_registered_date
-          ):
-            last_registered_date = observed_date
 
     return first_registered_date, last_registered_date, registered_count
 

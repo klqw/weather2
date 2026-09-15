@@ -16,6 +16,7 @@ CREATE TABLE locations (
     end_date DATE,
     complete BOOLEAN DEFAULT FALSE,
     last_observation_update DATE,
-
+    last_daily_update DATE,
+    
     UNIQUE (station_type, block_no)
 );
