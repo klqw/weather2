@@ -1,11 +1,13 @@
 import argparse
 import configparser
 import logging
-import csv
 import sys
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import psycopg
+from psycopg.rows import dict_row
+from db import get_connection
 
 # --------------------
 # 設定ファイル
@@ -23,80 +25,127 @@ def load_config():
 
   return config
 
-def load_csv_files(data_dir, location_code, config):
+def get_weather_observations(location_data, config):
+  sql = """
+      SELECT
+        location_id,
+        observed_date,
+        avg_temp,
+        max_temp,
+        min_temp,
+        avg_humidity,
+        sunshine_hours,
+        precipitation,
+        avg_wind_speed,
+        max_snow_depth
+      FROM weather_observations
+      WHERE location_id = %s;
+  """
 
-  files = list(data_dir.glob(f"*_{location_code}_*.csv"))
+  try:
+    with get_connection(config) as conn:
+      with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+          sql,
+          (location_data["location_id"], )
+        )
+        weather_observations_data = cur.fetchall()
 
-  if not files:
-    raise FileNotFoundError("CSVファイルがありません")
+        if weather_observations_data is None:
+          raise ValueError(f"指定された地点のデータが取得できませんでした location_id: {location_data["location_id"]}")
 
-  dfs = []
+        return weather_observations_data
 
-  for file in files:
-    logging.info("読み込み: %s", file)
+  except psycopg.Error as e:
+    raise RuntimeError("weather_observationsテーブルからの取得に失敗しました") from e
 
-    # 気象台, アメダスそれぞれの使用カラム指定
-    usecols_map = {
-      "s": [0, 1, 5, 8, 11, 14, 17, 21, 25],
-      "a": [0, 1, 4, 7, 10, 13, 16, 19, 22]
-    }
-    usecols = usecols_map[location_code[0]]
 
-    df = pd.read_csv(
-      file,
-      encoding=config["CSV"]["input_encoding"],
-      skiprows=[0, 1, 2, 4, 5],
-      usecols=usecols
-    )
-    dfs.append(df)
+def get_location(location, prefecture, config):
+  sql = """
+    SELECT
+      location_id,
+      station_type,
+      block_no,
+      name,
+      name_en,
+      prefecture_name,
+      prefecture_name_en,
+      start_date,
+      end_date,
+      complete,
+      last_observation_update
+    FROM locations
+    WHERE
+      (name = %s AND prefecture_name = %s)
+      OR
+      (name_en = %s AND prefecture_name_en = %s)
+    LIMIT 1;
+  """
 
-  return pd.concat(dfs, ignore_index=True)
+  try:
+    with get_connection(config) as conn:
+      with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+          sql,
+          (location, prefecture, location, prefecture)
+        )
+        location_data = cur.fetchone()
 
+        if location_data is None:
+          raise ValueError(f"指定された地点が見つかりません 地点名: {location}, 都府県名: {prefecture}")
+
+        return location_data
+
+  except psycopg.Error as e:
+    raise RuntimeError("locationテーブルからの取得に失敗しました") from e
+  
 
 # --------------------
 # argバリデーション
 # --------------------
 
 # location, prefecture
-def validate_location(location, prefecture, stats_file, config):
-  location_dir = Path(config["PATH"]["location_dir"])
-  locations_file = (location_dir / "locations.csv")
+def validate_location(location, prefecture, config):
+  sql = """
+    SELECT
+      location_id,
+      station_type,
+      block_no,
+      name,
+      name_en,
+      prefecture_name,
+      prefecture_name_en,
+      start_date,
+      end_date,
+      complete,
+      last_observation_update
+    FROM locations
+    WHERE
+      (name = %s AND prefecture_name = %s)
+      OR
+      (name_en = %s AND prefecture_name_en = %s)
+    LIMIT 1;
+  """
 
   try:
-    with open(locations_file, encoding=config["CSV"]["output_encoding"], newline="") as f:
-      reader = csv.DictReader(f)
-      matches = [
-        row for row in reader
-        if (
-          (row["name"] == location and row["prefecture_name"] == prefecture)
-          or
-          (row["name_en"] == location and row["prefecture_name_en"] == prefecture)
+    with get_connection(config) as conn:
+      with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+          sql,
+          (location, prefecture, location, prefecture)
         )
-      ]
+        location_data = cur.fetchone()
 
-    if len(matches) != 1:
-      raise ValueError(
-        f"地点名と都府県名の組み合わせが不正です 地点名: {location}, 都府県名: {prefecture}"
-      )
+        if location_data is None:
+          raise ValueError(f"地点名と都府県名の組み合わせが不正です 地点名: {location}, 都府県名: {prefecture}")
 
-    location_code = matches[0]["station_type"] + matches[0]["block_no"]
+        # 取得対象が1件だった場合は取得対象地点のlocation情報を返す
+        logging.info("取得対象 地点名: %s, 都府県名: %s", location, prefecture)
 
-    df = get_stats(stats_file, config)
-    df = df[
-      df["code"] == location_code
-    ]
+        return location_data
 
-    if df.empty:
-      raise ValueError(
-        f"指定された地点のstatsが登録されていません 地点名: {location}, 都府県名: {prefecture}"
-      )
-
-    # 取得対象が1件かつstats登録済みだった場合は取得対象地点のstationNumを返す
-    logging.info("取得対象 地点名: %s, 都府県名: %s", location, prefecture)
-    return location_code
-
-  except FileNotFoundError:
-    raise FileNotFoundError("地点マスタCSVがありません")
+  except psycopg.Error as e:
+    raise RuntimeError("locationテーブルからの取得に失敗しました") from e
 
 # date
 def validate_date(df, date):
@@ -108,7 +157,7 @@ def validate_date(df, date):
   except ValueError:
     raise ValueError(f"不正なdateです: {date}")
 
-  if not df["年月日"].eq(target_date).any():
+  if not df["observed_date"].eq(target_date).any():
     raise ValueError(
       f"指定されたdateのデータがありません: {date}"
     )
@@ -119,30 +168,155 @@ def validate_date(df, date):
 # データいじり
 # --------------------
 
-# 年月日をdatetimeに変換
-def prepare_date(df):
-  df = df.copy()
+# 1件以上取得確認
+def get_stats(cur, sql, stats_name):
+  cur.execute(sql)
+  rows = cur.fetchall()
 
-  df["年月日"] = pd.to_datetime(
-    df["年月日"],
-    format="%Y/%m/%d"
-  )
-  df["月"] = df["年月日"].dt.month
-  df["日"] = df["年月日"].dt.day
+  if not rows:
+    raise ValueError(f"{stats_name}の取得結果が0件です")
 
-  return df
+  return rows
+
+# daily_avg_stats取得
+def get_daily_avg_stats(config, stats_name):
+  sql = """
+    SELECT
+      location_id,
+      month,
+      day,
+      avg_temp,
+      max_temp,
+      min_temp,
+      avg_humidity,
+      sunshine_hours,
+      precipitation,
+      avg_wind_speed,
+      max_snow_depth
+    FROM daily_avg_stats;
+  """
+
+  try:
+    with get_connection(config) as conn:
+      with conn.cursor(row_factory=dict_row) as cur:
+        return get_stats(cur, sql, stats_name)
+
+  except psycopg.Error as e:
+    raise RuntimeError(f"{stats_name}テーブルからの取得に失敗しました") from e
+
+# month_avg_stats取得
+def get_month_avg_stats(config, stats_name):
+  sql = """
+    SELECT
+      location_id,
+      month,
+      avg_temp,
+      max_temp,
+      min_temp,
+      avg_humidity,
+      sunshine_hours,
+      precipitation,
+      avg_wind_speed,
+      max_snow_depth
+    FROM month_avg_stats;
+  """
+
+  try:
+    with get_connection(config) as conn:
+      with conn.cursor(row_factory=dict_row) as cur:
+        return get_stats(cur, sql, stats_name)
+
+  except psycopg.Error as e:
+    raise RuntimeError(f"{stats_name}テーブルからの取得に失敗しました") from e
+
+# overall_avg_stats取得
+def get_overall_avg_stats(config, stats_name):
+  sql = """
+    SELECT
+      location_id,
+      avg_temp,
+      max_temp,
+      min_temp,
+      avg_humidity,
+      sunshine_hours,
+      precipitation,
+      avg_wind_speed,
+      max_snow_depth
+    FROM overall_avg_stats;
+  """
+
+  try:
+    with get_connection(config) as conn:
+      with conn.cursor(row_factory=dict_row) as cur:
+        return get_stats(cur, sql, stats_name)
+
+  except psycopg.Error as e:
+    raise RuntimeError(f"{stats_name}テーブルからの取得に失敗しました") from e
+
+# daily_max_stats取得
+def get_daily_max_stats(config, stats_name):
+  sql = """
+    SELECT
+      location_id,
+      month,
+      day,
+      avg_temp,
+      max_temp,
+      min_temp,
+      avg_humidity,
+      sunshine_hours,
+      precipitation,
+      avg_wind_speed,
+      max_snow_depth
+    FROM daily_max_stats;
+  """
+
+  try:
+    with get_connection(config) as conn:
+      with conn.cursor(row_factory=dict_row) as cur:
+        return get_stats(cur, sql, stats_name)
+
+  except psycopg.Error as e:
+    raise RuntimeError(f"{stats_name}テーブルからの取得に失敗しました") from e
+
+# daily_min_stats取得
+def get_daily_min_stats(config, stats_name):
+  sql = """
+    SELECT
+      location_id,
+      month,
+      day,
+      avg_temp,
+      max_temp,
+      min_temp,
+      avg_humidity,
+      sunshine_hours,
+      precipitation,
+      avg_wind_speed,
+      max_snow_depth
+    FROM daily_min_stats;
+  """
+
+  try:
+    with get_connection(config) as conn:
+      with conn.cursor(row_factory=dict_row) as cur:
+        return get_stats(cur, sql, stats_name)
+
+  except psycopg.Error as e:
+    raise RuntimeError(f"{stats_name}テーブルからの取得に失敗しました") from e
+
 
 # 表示項目の設定
-def get_temp_columns(config):
+def get_temp_columns():
   return [
-    config["COLUMN"]["avg_tmp"],      # 平均気温(℃)
-    config["COLUMN"]["max_tmp"],      # 最高気温(℃)
-    config["COLUMN"]["min_tmp"],      # 最低気温(℃)
-    config["COLUMN"]["avg_humidity"], # 平均湿度(％)
-    config["COLUMN"]["sunshine"],     # 日照時間(時間)
-    config["COLUMN"]["avg_wind"],     # 平均風速(m/s)
-    config["COLUMN"]["precip"],       # 降水量の合計(mm)
-    config["COLUMN"]["max_snow"]      # 最深積雪(cm)
+    "avg_temp",        # 平均気温(℃)
+    "max_temp",        # 最高気温(℃)
+    "min_temp",        # 最低気温(℃)
+    "avg_humidity",    # 平均湿度(％)
+    "sunshine_hours",  # 日照時間(時間)
+    "avg_wind_speed",  # 平均風速(m/s)
+    "precipitation",   # 降水量の合計(mm)
+    "max_snow_depth"   # 最深積雪(cm)
   ]
 
 # 差分の計算(NaN値対策)
@@ -177,19 +351,19 @@ def calc_score(base_value, max_value, min_value):
 # スコア計算時のラベル(カラム名)を設定
 def get_score_calc_columns(config):
   return {
-    "loc_day": config["COLUMN"]["location_daily_score"],
-    "loc_mon": config["COLUMN"]["location_month_score"],
-    "loc_all": config["COLUMN"]["location_overall_score"],
-    "all_day": config["COLUMN"]["all_daily_score"],
-    "all_mon": config["COLUMN"]["all_month_score"],
-    "all_all": config["COLUMN"]["all_overall_score"]
+    "loc_day": config["SCORE_LABEL"]["location_daily_score"],
+    "loc_mon": config["SCORE_LABEL"]["location_month_score"],
+    "loc_all": config["SCORE_LABEL"]["location_overall_score"],
+    "all_day": config["SCORE_LABEL"]["all_daily_score"],
+    "all_mon": config["SCORE_LABEL"]["all_month_score"],
+    "all_all": config["SCORE_LABEL"]["all_overall_score"]
   }
 
 # スコア出力時のラベル(カラム名)を設定
 def get_score_out_columns(config):
   return [
-    config["COLUMN"]["output_location_score"],
-    config["COLUMN"]["output_all_score"]
+    config["SCORE_LABEL"]["output_location_score"],
+    config["SCORE_LABEL"]["output_all_score"]
   ]
 
 # 日ごと、月ごと、全期間に合わせてスコアを格納
@@ -209,71 +383,59 @@ def extract_score(score, label, period, config):
 
   return result
 
-# make_statsからの取得
-def get_stats(input_file, config):
-
-  try:
-    stats = pd.read_csv(
-      input_file,
-      encoding=config["CSV"]["output_encoding"]
-    )
-
-  except FileNotFoundError:
-    raise # main側で処理
-
-  logging.info(f"Statsファイル読み込み完了: {input_file}")
-
-  return stats
 
 # 指定日の実測値を取得
 def get_target_temp(df, target_date):
   return df[
-    df["年月日"] == target_date
+    df["observed_date"] == target_date
   ]
 
 # --------------------
 # 指定日付の差分分析
 # --------------------
 
-# 指定日と月ごとの比較
-def month_diff(input_file, location_code, target_temp, config):
-  # StatsのCSVファイルを取得
-  df = get_stats(input_file, config)
+# 指定日と日ごとの比較
+def daily_diff(df, target_data):
 
-  # 指定日の月を取得
-  target_month = target_temp["年月日"].iloc[0].month
+  # ターゲット地点のlocation_idを取得
+  location_id = target_data["location_id"].iloc[0]
 
-  # 指定日の月に対応する平均値を取得
+  # 指定日の月・日を取得
+  target_month = target_data["month"].iloc[0]
+  target_day = target_data["day"].iloc[0]
+
+  # 指定日の月・日に対する平均値を取得
   df = df[
-    df["月"] == target_month
+    (df["month"] == target_month) &
+    (df["day"] == target_day)
   ]
 
-  # 全地点の指定日の月に対する平均値を取得
-  all_avg = df.groupby(["code", "月"])[
-    get_temp_columns(config)
+  # 全地点の指定日の月・日に対する平均値を取得
+  all_avg = df.groupby(["location_id", "month", "day"])[
+    get_temp_columns()
   ].mean()
   all_avg = all_avg.mean().to_frame().T
   # print(all_avg)
 
-  # ターゲット地点の指定日の月に対する平均値を取得
+  # ターゲット地点の指定日の月・日に対する平均値を取得
   target_avg = df[
-    df["code"] == location_code
+    df["location_id"] == location_id
   ]
   # print(target_avg)
 
   # target_tempを比較用に加工
-  actual = target_temp[
-    get_temp_columns(config)
+  actual = target_data[
+    get_temp_columns()
   ].iloc[0]
 
-  # 全地点の指定日の月に対する平均値を比較用に加工
+  # 全地点の指定日の月・日に対する平均値を比較用に加工
   base_all = all_avg[
-    get_temp_columns(config)
+    get_temp_columns()
   ].iloc[0]
 
-  # ターゲット地点の指定日の月に対する平均値を比較用に加工
+  # ターゲット地点の指定日の月・日に対する平均値を比較ように加工
   base_target = target_avg[
-    get_temp_columns(config)
+    get_temp_columns()
   ].iloc[0]
 
   return pd.DataFrame({
@@ -284,47 +446,46 @@ def month_diff(input_file, location_code, target_temp, config):
     "差(全体)": calc_diff(actual, base_all)
   }).round(1)
 
-# 指定日と日ごとの比較
-def daily_diff(input_file, location_code, target_temp, config):
-  # StatsのCSVファイルを取得
-  df = get_stats(input_file, config)
+# 指定日と月ごとの比較
+def month_diff(df, target_data):
 
-  # 指定日の月・日を取得
-  target_month = target_temp["年月日"].iloc[0].month
-  target_day = target_temp["年月日"].iloc[0].day
+  # ターゲット地点のlocation_idを取得
+  location_id = target_data["location_id"].iloc[0]
 
-  # 指定日の月・日に対する平均値を取得
+  # 指定日の月を取得
+  target_month = target_data["month"].iloc[0]
+
+  # 指定日の月に対応する平均値を取得
   df = df[
-    (df["月"] == target_month) &
-    (df["日"] == target_day)
+    df["month"] == target_month
   ]
 
-  # 全地点の指定日の月・日に対する平均値を取得
-  all_avg = df.groupby(["code", "月", "日"])[
-    get_temp_columns(config)
+  # 全地点の指定日の月に対する平均値を取得
+  all_avg = df.groupby(["location_id", "month"])[
+    get_temp_columns()
   ].mean()
   all_avg = all_avg.mean().to_frame().T
   # print(all_avg)
 
-  # ターゲット地点の指定日の月・日に対する平均値を取得
+  # ターゲット地点の指定日の月に対する平均値を取得
   target_avg = df[
-    df["code"] == location_code
+    df["location_id"] == location_id
   ]
   # print(target_avg)
 
-  # target_tempを比較用に加工
-  actual = target_temp[
-    get_temp_columns(config)
+  # target_dataを比較用に加工
+  actual = target_data[
+    get_temp_columns()
   ].iloc[0]
 
-  # 全地点の指定日の月・日に対する平均値を比較用に加工
+  # 全地点の指定日の月に対する平均値を比較用に加工
   base_all = all_avg[
-    get_temp_columns(config)
+    get_temp_columns()
   ].iloc[0]
 
-  # ターゲット地点の指定日の月・日に対する平均値を比較ように加工
+  # ターゲット地点の指定日の月に対する平均値を比較用に加工
   base_target = target_avg[
-    get_temp_columns(config)
+    get_temp_columns()
   ].iloc[0]
 
   return pd.DataFrame({
@@ -336,10 +497,10 @@ def daily_diff(input_file, location_code, target_temp, config):
   }).round(1)
 
 # 指定日と全期間の比較
-def all_diff(input_file, location_code, target_temp, config):
-  # StatsのCSVファイルを取得
-  df = get_stats(input_file, config)
-  # print(df)
+def all_diff(df, target_data):
+
+  # ターゲット地点のlocation_idを取得
+  location_id = target_data["location_id"].iloc[0]
 
   # 全地点の平均値を取得
   all_avg = df.mean(numeric_only=True).to_frame().T
@@ -347,23 +508,23 @@ def all_diff(input_file, location_code, target_temp, config):
 
   # ターゲット地点の平均値を取得
   target_avg = df[
-    df["code"] == location_code
+    df["location_id"] == location_id
   ]
   # print(target_avg)
 
   # target_tempを比較用に加工
-  actual = target_temp[
-    get_temp_columns(config)
+  actual = target_data[
+    get_temp_columns()
   ].iloc[0]
 
   # 全地点の平均値を比較用に加工
   base_all = all_avg[
-    get_temp_columns(config)
+    get_temp_columns()
   ].iloc[0]
 
   # ターゲット地点の平均値を比較用に加工
   base_target = target_avg[
-    get_temp_columns(config)
+    get_temp_columns()
   ].iloc[0]
 
   return pd.DataFrame({
@@ -375,123 +536,121 @@ def all_diff(input_file, location_code, target_temp, config):
   }).round(1)
   
 # 指定日の最大値と最小値からスコア計算したdfを出力
-def make_score(max_input_file, min_input_file, location_code, target_temp, config):
-  # Statsの最大値CSVファイルを取得
-  max_df = get_stats(max_input_file, config)
+def make_score(max_df, min_df, target_data, config):
 
-  # Statsの最小値CSVファイルを取得
-  min_df = get_stats(min_input_file, config)
+  # ターゲット地点のlocation_idを取得
+  location_id = target_data["location_id"].iloc[0]
 
   # 指定日の月・日を取得
-  target_month = target_temp["年月日"].iloc[0].month
-  target_day = target_temp["年月日"].iloc[0].day
+  target_month = target_data["month"].iloc[0]
+  target_day = target_data["day"].iloc[0]
 
   # 指定地点 & 指定日の最大値を取得
   max_location_daily_df = max_df[
-    (max_df["code"] == location_code) &
-    (max_df["月"] == target_month) &
-    (max_df["日"] == target_day)
+    (max_df["location_id"] == location_id) &
+    (max_df["month"] == target_month) &
+    (max_df["day"] == target_day)
   ]
   # スコア計算用に加工
   max_loc_day = max_location_daily_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].iloc[0]
 
   # 指定地点 & 指定月の最大値を取得
   max_location_month_df = max_df[
-    (max_df["code"] == location_code) &
-    (max_df["月"] == target_month)
+    (max_df["location_id"] == location_id) &
+    (max_df["month"] == target_month)
   ]
   # スコア計算用に加工
   max_loc_mon = max_location_month_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].max()
 
   # 指定地点 & 全期間の最大値を取得
   max_location_all_df = max_df[
-    (max_df["code"] == location_code)
+    (max_df["location_id"] == location_id)
   ]
   # スコア計算用に加工
   max_loc_all = max_location_all_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].max()
 
   # 全地点 指定日の最大値を取得
   max_daily_df = max_df[
-    (max_df["月"] == target_month) &
-    (max_df["日"] == target_day)
+    (max_df["month"] == target_month) &
+    (max_df["day"] == target_day)
   ]
   # スコア計算用に加工
   max_day = max_daily_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].max()
 
   # 全地点 & 指定月の最大値を取得
   max_month_df = max_df[
-    (max_df["月"] == target_month)
+    (max_df["month"] == target_month)
   ]
   # スコア計算用に加工
   max_mon = max_month_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].max()
 
   # 全地点 & 全期間の最大値を取得、加工
   max_all = max_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].max()
 
   # 指定地点 & 指定日の最小値を取得
   min_location_daily_df = min_df[
-    (min_df["code"] == location_code) &
-    (min_df["月"] == target_month) &
-    (min_df["日"] == target_day)
+    (min_df["location_id"] == location_id) &
+    (min_df["month"] == target_month) &
+    (min_df["day"] == target_day)
   ]
   # スコア計算用に加工
   min_loc_day = min_location_daily_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].iloc[0]
 
   # 指定地点 & 指定月の最小値を取得
   min_location_month_df = min_df[
-    (min_df["code"] == location_code) &
-    (min_df["月"] == target_month)
+    (min_df["location_id"] == location_id) &
+    (min_df["month"] == target_month)
   ]
   # スコア計算用に加工
   min_loc_mon = min_location_month_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].min()
 
   # 指定地点 & 全期間の最小値を取得
   min_location_all_df = min_df[
-    (min_df["code"] == location_code)
+    (min_df["location_id"] == location_id)
   ]
   # スコア計算用に加工
   min_loc_all = min_location_all_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].min()
 
   # 全地点 指定日の最小値を取得
   min_daily_df = min_df[
-    (min_df["月"] == target_month) &
-    (min_df["日"] == target_day)
+    (min_df["month"] == target_month) &
+    (min_df["day"] == target_day)
   ]
   # スコア計算用に加工
   min_day = min_daily_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].min()
 
   # 全地点 & 指定月の最小値を取得
   min_month_df = min_df[
-    (min_df["月"] == target_month)
+    (min_df["month"] == target_month)
   ]
   # スコア計算用に加工
   min_mon = min_month_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].min()
 
   # 全地点 & 全期間の最小値を取得、加工
   min_all = min_df[
-    get_temp_columns(config)
+    get_temp_columns()
   ].min()
 
   """
@@ -514,10 +673,10 @@ def make_score(max_input_file, min_input_file, location_code, target_temp, confi
   print(max_all)
   print(min_all)
   """
-
+  
   # 基準値の整形
-  base = target_temp[
-    get_temp_columns(config)
+  base = target_data[
+    get_temp_columns()
   ].iloc[0]
 
   # スコアのラベル(カラム名)を設定
@@ -540,34 +699,13 @@ def make_score(max_input_file, min_input_file, location_code, target_temp, confi
 # --------------------
 
 # CSV出力前にフォーマットを整える
-def make_csv_result(result, comparison, location_code, score, config):
-  # 地点マスタを取得
-  location_dir = Path(config["PATH"]["location_dir"])
-  location_file = (location_dir / "locations.csv")
-  station_type = location_code[0]
-  block_no = location_code[1:]
-
-  try:
-    df = pd.read_csv(
-      location_file, dtype={"block_no": str},
-      encoding=config["CSV"]["output_encoding"]
-    )
-
-  except FileNotFoundError as e:
-    raise FileNotFoundError("CSVファイルがありません")
-
-  # 地点名取得
-  location_name = df.loc[
-    (df["station_type"] == station_type) &
-    (df["block_no"] == block_no),
-    ["name", "prefecture_name"]
-  ].iloc[0]
+def make_csv_result(result, comparison, location_data, score):
 
   # 出力用DataFrameに 比較対象, 地点, スコアを追加
   result = result.copy()
   result.insert(0, "比較対象", comparison)
-  result.insert(1, "地点", location_name["name"])
-  result.insert(2, "都府県", location_name["prefecture_name"])
+  result.insert(1, "地点", location_data["name"])
+  result.insert(2, "都府県", location_data["prefecture_name"])
   result = result.reset_index()
   result = result.rename(columns={"index": "項目"})
   result = result.join(
@@ -609,23 +747,19 @@ def main():
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
   )
 
-  input_dir = Path(
-    config["PATH"]["data_dir"]
-  )
+  # 5つの集計取得を共通タスク化
+  stats_tasks = [
+    ("daily_avg_stats", get_daily_avg_stats),
+    ("month_avg_stats", get_month_avg_stats),
+    ("overall_avg_stats", get_overall_avg_stats),
+    ("daily_max_stats", get_daily_max_stats),
+    ("daily_min_stats", get_daily_min_stats)
+  ]
 
-  stats_dir = Path(
-    config["PATH"]["stats_input_dir"]
-  )
+  # index(column)名を和名へ変換するための準備
+  column_map = dict(config["COLUMN"])
 
-  # Avg Stats
-  month_stats_file = (stats_dir / "month_stats.csv")
-  daily_stats_file = (stats_dir / "daily_stats.csv")
-  all_stats_file = (stats_dir / "overall_stats.csv")
-
-  # Max, Min Stats
-  max_stats_file = (stats_dir / "max_stats.csv")
-  min_stats_file = (stats_dir / "min_stats.csv")
-
+  # 出力先ディレクトリパス設定
   output_dir = Path(
     config["PATH"]["result_dir"]
   )
@@ -662,18 +796,34 @@ def main():
 
   try:
     # --------------------
-    # CSV読み込み
+    # DB読み込み
     # --------------------
 
     # args.location, args.prefectureのチェック
-    location_code = validate_location(args.location, args.prefecture, all_stats_file, config)
+    location_data = validate_location(args.location, args.prefecture, config)
 
-    # CSV読み込み
-    df = load_csv_files(input_dir, location_code, config)
-    logging.info("CSV読み込み完了")
+    # location_code
+    location_code = location_data["station_type"] + location_data["block_no"]
 
-    # dfの「年月日」をdatetimeに変換
-    df = prepare_date(df)
+    # weather_observations読み込み
+    get_weather_observations_data = get_weather_observations(location_data, config)
+    logging.info("DB取得完了")
+    df = pd.DataFrame(get_weather_observations_data)
+
+    # 日付型へ変換
+    df["observed_date"] = pd.to_datetime(df["observed_date"])
+
+    # 月・日を追加
+    df["month"] = df["observed_date"].dt.month
+    df["day"] = df["observed_date"].dt.day
+
+
+    # --------------------
+    # 集計結果取得
+    # --------------------
+    stats_data = {}
+    for name, getter in stats_tasks:
+      stats_data[name] = pd.DataFrame(getter(config, name))
 
     # args.dateのチェック (OKだったら対象日を取得)
     target_date = validate_date(df, args.date)
@@ -684,23 +834,33 @@ def main():
     # --------------------
 
     # 対象日の実測値を取得
-    target_temp = get_target_temp(df, target_date)
-    # print(target_temp)
+    target_data = get_target_temp(df, target_date)
+    target_data.rename(index=column_map, inplace=True)
+    # print(target_data)
 
     # 日ごとの平均値比較結果を取得
-    result_daily = daily_diff(daily_stats_file, location_code, target_temp, config)
+    result_daily = daily_diff(stats_data["daily_avg_stats"], target_data)
+    result_daily.rename(index=column_map, inplace=True)
     # print(result_daily)
 
     # 月ごとの平均値比較結果を取得
-    result_month = month_diff(month_stats_file, location_code, target_temp, config)
+    result_month = month_diff(stats_data["month_avg_stats"], target_data)
+    result_month.rename(index=column_map, inplace=True)
     # print(result_month)
 
     # 全期間の平均値比較結果を取得
-    result_overall = all_diff(all_stats_file, location_code, target_temp, config)
+    result_overall = all_diff(stats_data["overall_avg_stats"], target_data)
+    result_overall.rename(index=column_map, inplace=True)
     # print(result_overall)
 
     # 指定地点 & 指定日 から計算したスコアを取得
-    score = make_score(max_stats_file, min_stats_file, location_code, target_temp, config)
+    score = make_score(
+              stats_data["daily_max_stats"],
+              stats_data["daily_min_stats"],
+              target_data,
+              config
+            )
+    score.rename(index=column_map, inplace=True)
     # print(score)
 
     # スコアのラベル(カラム名)を設定
@@ -726,13 +886,13 @@ def main():
 
     # CSV出力用にフォーマット整形
     output_result_daily = make_csv_result(
-      result_daily, comparison_daily, location_code, score_daily, config
+      result_daily, comparison_daily, location_data, score_daily
     )
     output_result_month = make_csv_result(
-      result_month, comparison_month, location_code, score_month, config
+      result_month, comparison_month, location_data, score_month
     )
     output_result_overall = make_csv_result(
-      result_overall, comparison_overall, location_code, score_overall, config
+      result_overall, comparison_overall, location_data, score_overall
     )
 
     result = pd.concat([

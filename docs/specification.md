@@ -285,3 +285,8 @@ FROM daily_stats AS d
 JOIN locations AS l
   ON d.location_id = l.location_id
 ORDER BY d.location_id;
+
+## TODO
+- CSVとDBの値照合
+- make_stats.pyの関数部分微修正
+- 自動巡回バッチ(最新データ取得用)
