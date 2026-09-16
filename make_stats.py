@@ -284,7 +284,7 @@ def get_daily_min_stats(config):
 # --------------------
 
 # locationごと & 日ごとの平均値
-def set_daily_avg_stats(stats_data, config):
+def set_daily_avg_stats(cur, stats_data):
   sql = """
     INSERT INTO daily_avg_stats (
       location_id,
@@ -325,17 +325,14 @@ def set_daily_avg_stats(stats_data, config):
   """
 
   try:
-    with get_connection(config) as conn:
-      with conn.cursor() as cur:
-        cur.executemany(sql, stats_data)
-
+    cur.executemany(sql, stats_data)
     return len(stats_data)
 
   except psycopg.Error as e:
     raise RuntimeError("daily_avg_statsへのDB登録に失敗しました") from e
 
 # locationごと & 月ごとの平均値
-def set_month_avg_stats(stats_data, config):
+def set_month_avg_stats(cur, stats_data):
   sql = """
     INSERT INTO month_avg_stats (
       location_id,
@@ -374,17 +371,14 @@ def set_month_avg_stats(stats_data, config):
   """
 
   try:
-    with get_connection(config) as conn:
-      with conn.cursor() as cur:
-        cur.executemany(sql, stats_data)
-
+    cur.executemany(sql, stats_data)
     return len(stats_data)
 
   except psycopg.Error as e:
     raise RuntimeError("month_avg_statsへのDB登録に失敗しました") from e
 
 # locationごと & 全期間の平均値
-def set_overall_avg_stats(stats_data, config):
+def set_overall_avg_stats(cur, stats_data):
   sql = """
     INSERT INTO overall_avg_stats (
       location_id,
@@ -421,17 +415,14 @@ def set_overall_avg_stats(stats_data, config):
   """
 
   try:
-    with get_connection(config) as conn:
-      with conn.cursor() as cur:
-        cur.executemany(sql, stats_data)
-
+    cur.executemany(sql, stats_data)
     return len(stats_data)
 
   except psycopg.Error as e:
     raise RuntimeError("overall_avg_statsへのDB登録に失敗しました") from e
 
 # locationごと & 日ごとの最高値
-def set_daily_max_stats(stats_data, config):
+def set_daily_max_stats(cur, stats_data):
   sql = """
     INSERT INTO daily_max_stats (
       location_id,
@@ -472,17 +463,14 @@ def set_daily_max_stats(stats_data, config):
   """
 
   try:
-    with get_connection(config) as conn:
-      with conn.cursor() as cur:
-        cur.executemany(sql, stats_data)
-
+    cur.executemany(sql, stats_data)
     return len(stats_data)
 
   except psycopg.Error as e:
     raise RuntimeError("daily_max_statsへのDB登録に失敗しました") from e
 
 # locationごと & 日ごとの最低値
-def set_daily_min_stats(stats_data, config):
+def set_daily_min_stats(cur, stats_data):
   sql = """
     INSERT INTO daily_min_stats (
       location_id,
@@ -523,10 +511,7 @@ def set_daily_min_stats(stats_data, config):
   """
 
   try:
-    with get_connection(config) as conn:
-      with conn.cursor() as cur:
-        cur.executemany(sql, stats_data)
-
+    cur.executemany(sql, stats_data)
     return len(stats_data)
 
   except psycopg.Error as e:
@@ -545,53 +530,38 @@ def main():
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
   )
 
+  # 5つの集計→登録処理を共通タスク化
+  stats_tasks = [
+    ("daily_avg_stats", get_daily_avg_stats, set_daily_avg_stats),
+    ("month_avg_stats", get_month_avg_stats, set_month_avg_stats),
+    ("overall_avg_stats", get_overall_avg_stats, set_overall_avg_stats),
+    ("daily_max_stats", get_daily_max_stats, set_daily_max_stats),
+    ("daily_min_stats", get_daily_min_stats, set_daily_min_stats)
+  ]
+
   logging.info("========== START ==========")
 
   try:
     # --------------------
     # データ集計実行
     # --------------------
+    stats_data = {}
 
-    # 日ごと、月ごと、全期間の平均値比較結果を取得
-    daily_avg_stats = get_daily_avg_stats(config)
-    # print(daily_avg_stats)
-
-    month_avg_stats = get_month_avg_stats(config)
-    # print(month_avg_stats)
-
-    overall_avg_stats = get_overall_avg_stats(config)
-    # print(overall_avg_stats)
-
-    # locationごと & 日ごとの各気温の最高値を全取得
-    daily_max_stats = get_daily_max_stats(config)
-
-    # locationごと & 日ごとの各気温の最低値を全取得
-    daily_min_stats = get_daily_min_stats(config)
+    # location単位で、日ごと・月ごと・全期間の平均値・最高値・最低値を取得
+    for name, getter, _ in stats_tasks:
+      stats_data[name] = getter(config)
 
     # --------------------
     # DB登録実行
     # --------------------
+    with get_connection(config) as conn:
+      with conn.cursor() as cur:
+        for name, _, setter in stats_tasks:
+          processed_count = setter(cur, stats_data[name])
 
-    # 出力ファイル名指定
-    processed_daily_avg_count = set_daily_avg_stats(daily_avg_stats, config)
-    print(f"daily_avg_stats 登録完了: {processed_daily_avg_count}件")
-    logging.info("daily_avg_stats 登録完了: %s件", processed_daily_avg_count)
-
-    processed_month_avg_count = set_month_avg_stats(month_avg_stats, config)
-    print(f"month_avg_stats 登録完了: {processed_month_avg_count}件")
-    logging.info("month_avg_stats 登録完了: %s件", processed_month_avg_count)
-
-    processed_overall_avg_count = set_overall_avg_stats(overall_avg_stats, config)
-    print(f"overall_avg_stats 登録完了: {processed_overall_avg_count}件")
-    logging.info("overall_avg_stats 登録完了: %s件", processed_overall_avg_count)
-
-    processed_daily_max_count = set_daily_max_stats(daily_max_stats, config)
-    print(f"daily_max_stats 登録完了: {processed_daily_max_count}件")
-    logging.info("daily_max_stats 登録完了: %s件", processed_daily_max_count)
-
-    processed_daily_min_count = set_daily_min_stats(daily_min_stats, config)
-    print(f"daily_min_stats 登録完了: {processed_daily_min_count}件")
-    logging.info("daily_min_stats 登録完了: %s件", processed_daily_min_count)
+          message = f"{name} 登録完了: {processed_count}件"
+          print(message)
+          logging.info(message)
 
   except (FileNotFoundError, ValueError, RuntimeError) as e:
     logging.error(str(e))
