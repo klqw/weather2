@@ -1,5 +1,6 @@
 import configparser
 import logging
+import json
 import sys
 from pathlib import Path
 import psycopg
@@ -22,23 +23,32 @@ def load_config():
 
   return config
 
+def load_message_config(config):
+  config_dir = Path(config["PATH"]["config_dir"])
+  error_massages_file = config_dir / "message_config.json"
+
+  with open(error_massages_file, encoding="utf-8") as f:
+    return json.load(f)
+
 
 # --------------------
 # データ集計
 # --------------------
 
 # 1件以上取得確認
-def get_stats(cur, sql, stats_name):
+def get_stats(cur, sql, stats_name, messages):
   cur.execute(sql)
   rows = cur.fetchall()
 
   if not rows:
-    raise ValueError(f"{stats_name}の取得結果が0件です")
+    raise ValueError(
+      messages["no_records_found"].format(table=stats_name)
+    )
 
   return rows
 
 # locationごと & 日ごとの平均値を全取得
-def get_daily_avg_stats(config):
+def get_daily_avg_stats(config, stats_name, messages):
   sql = """
     WITH daily_stats AS (
       SELECT
@@ -82,13 +92,13 @@ def get_daily_avg_stats(config):
   try:
     with get_connection(config) as conn:
       with conn.cursor(row_factory=dict_row) as cur:
-        return get_stats(cur, sql, "daily_avg_stats")
+        return get_stats(cur, sql, stats_name, messages)
 
   except psycopg.Error as e:
-    raise RuntimeError("weather_observations, locationテーブルからの取得に失敗しました") from e
+    raise RuntimeError(messages["get_stats_failed"]) from e
 
 # locationごと & 月ごとの平均値を全取得
-def get_month_avg_stats(config):
+def get_month_avg_stats(config, stats_name, messages):
   sql = """
     WITH month_stats AS (
       SELECT
@@ -129,13 +139,13 @@ def get_month_avg_stats(config):
   try:
     with get_connection(config) as conn:
       with conn.cursor(row_factory=dict_row) as cur:
-        return get_stats(cur, sql, "month_avg_stats")
+        return get_stats(cur, sql, stats_name, messages)
 
   except psycopg.Error as e:
-    raise RuntimeError("weather_observations, locationテーブルからの取得に失敗しました") from e
+    raise RuntimeError(messages["get_stats_failed"]) from e
 
 # locationごと & 全期間の平均値を取得
-def get_overall_avg_stats(config):
+def get_overall_avg_stats(config, stats_name, messages):
   sql = """
     WITH overall_stats AS (
       SELECT
@@ -172,13 +182,13 @@ def get_overall_avg_stats(config):
   try:
     with get_connection(config) as conn:
       with conn.cursor(row_factory=dict_row) as cur:
-        return get_stats(cur, sql, "overall_avg_stats")
+        return get_stats(cur, sql, stats_name, messages)
 
   except psycopg.Error as e:
-    raise RuntimeError("weather_observations, locationテーブルからの取得に失敗しました") from e
+    raise RuntimeError(messages["get_stats_failed"]) from e
 
 # locationごと & 日ごとの最高値を全取得
-def get_daily_max_stats(config):
+def get_daily_max_stats(config, stats_name, messages):
   sql = """
     WITH daily_stats AS (
       SELECT
@@ -222,14 +232,14 @@ def get_daily_max_stats(config):
   try:
     with get_connection(config) as conn:
       with conn.cursor(row_factory=dict_row) as cur:
-        return get_stats(cur, sql, "daily_max_stats")
+        return get_stats(cur, sql, stats_name, messages)
 
   except psycopg.Error as e:
-    raise RuntimeError("weather_observations, locationテーブルからの取得に失敗しました") from e
+    raise RuntimeError(messages["get_stats_failed"]) from e
 
 
 # locationごと & 日ごとの最低値を全取得
-def get_daily_min_stats(config):
+def get_daily_min_stats(config, stats_name, messages):
   sql = """
     WITH daily_stats AS (
       SELECT
@@ -273,10 +283,10 @@ def get_daily_min_stats(config):
   try:
     with get_connection(config) as conn:
       with conn.cursor(row_factory=dict_row) as cur:
-        return get_stats(cur, sql, "daily_min_stats")
+        return get_stats(cur, sql, stats_name, messages)
 
   except psycopg.Error as e:
-    raise RuntimeError("weather_observations, locationテーブルからの取得に失敗しました") from e
+    raise RuntimeError(messages["get_stats_failed"]) from e
 
 
 # --------------------
@@ -284,7 +294,7 @@ def get_daily_min_stats(config):
 # --------------------
 
 # locationごと & 日ごとの平均値
-def set_daily_avg_stats(cur, stats_data):
+def set_daily_avg_stats(cur, stats_data, stats_name, messages):
   sql = """
     INSERT INTO daily_avg_stats (
       location_id,
@@ -329,10 +339,12 @@ def set_daily_avg_stats(cur, stats_data):
     return len(stats_data)
 
   except psycopg.Error as e:
-    raise RuntimeError("daily_avg_statsへのDB登録に失敗しました") from e
+    raise RuntimeError(
+      messages["set_stats_failed"].format(table=stats_name)
+    ) from e
 
 # locationごと & 月ごとの平均値
-def set_month_avg_stats(cur, stats_data):
+def set_month_avg_stats(cur, stats_data, stats_name, messages):
   sql = """
     INSERT INTO month_avg_stats (
       location_id,
@@ -375,10 +387,12 @@ def set_month_avg_stats(cur, stats_data):
     return len(stats_data)
 
   except psycopg.Error as e:
-    raise RuntimeError("month_avg_statsへのDB登録に失敗しました") from e
+    raise RuntimeError(
+      messages["set_stats_failed"].format(table=stats_name)
+    ) from e
 
 # locationごと & 全期間の平均値
-def set_overall_avg_stats(cur, stats_data):
+def set_overall_avg_stats(cur, stats_data, stats_name, messages):
   sql = """
     INSERT INTO overall_avg_stats (
       location_id,
@@ -419,10 +433,12 @@ def set_overall_avg_stats(cur, stats_data):
     return len(stats_data)
 
   except psycopg.Error as e:
-    raise RuntimeError("overall_avg_statsへのDB登録に失敗しました") from e
+    raise RuntimeError(
+      messages["set_stats_failed"].format(table=stats_name)
+    ) from e
 
 # locationごと & 日ごとの最高値
-def set_daily_max_stats(cur, stats_data):
+def set_daily_max_stats(cur, stats_data, stats_name, messages):
   sql = """
     INSERT INTO daily_max_stats (
       location_id,
@@ -467,10 +483,12 @@ def set_daily_max_stats(cur, stats_data):
     return len(stats_data)
 
   except psycopg.Error as e:
-    raise RuntimeError("daily_max_statsへのDB登録に失敗しました") from e
+    raise RuntimeError(
+      messages["set_stats_failed"].format(table=stats_name)
+    ) from e
 
 # locationごと & 日ごとの最低値
-def set_daily_min_stats(cur, stats_data):
+def set_daily_min_stats(cur, stats_data, stats_name, messages):
   sql = """
     INSERT INTO daily_min_stats (
       location_id,
@@ -515,13 +533,18 @@ def set_daily_min_stats(cur, stats_data):
     return len(stats_data)
 
   except psycopg.Error as e:
-    raise RuntimeError("daily_min_statsへのDB登録に失敗しました") from e
+    raise RuntimeError(
+      messages["set_stats_failed"].format(table=stats_name)
+    ) from e
 
 # --------------------
 # main処理
 # --------------------
 def main():
+  # 設定ファイルの取得
   config = load_config()
+  message_config = load_message_config(config)
+  messages = message_config["make_stats"]
 
   logging.basicConfig(
     filename=config["LOG"]["log_file"],
@@ -549,7 +572,7 @@ def main():
 
     # location単位で、日ごと・月ごと・全期間の平均値・最高値・最低値を取得
     for name, getter, _ in stats_tasks:
-      stats_data[name] = getter(config)
+      stats_data[name] = getter(config, name, messages)
 
     # --------------------
     # DB登録実行
@@ -557,9 +580,12 @@ def main():
     with get_connection(config) as conn:
       with conn.cursor() as cur:
         for name, _, setter in stats_tasks:
-          processed_count = setter(cur, stats_data[name])
+          processed_count = setter(cur, stats_data[name], name, messages)
 
-          message = f"{name} 登録完了: {processed_count}件"
+          message = messages["set_stats_done"].format(
+            name=name,
+            count=processed_count
+          )
           print(message)
           logging.info(message)
 

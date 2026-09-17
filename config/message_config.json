@@ -1,0 +1,27 @@
+{
+  "make_locations": {
+    "get_prec_no": "prec_no参照CSV読み込み完了: {path}",
+    "get_stations": "prec_no: {prec_no} prefecture_name: {prefecture_name} を取得 ({count}地点)",
+    "amdmaster_download_done": "amdmaster.index4のダウンロード完了",
+    "set_locations_done": "locationsテーブルへの地点マスタ登録が完了しました。登録件数: {count}件",
+    "prec_no_not_found": "prec_no参照CSVがありません: {path}",
+    "amdmaster_not_found": "amdmaster.index4が見つからないため、ダウンロードします: {path}",
+    "amdmaster_download_failed": "amdmaster.index4のダウンロードに失敗しました: {url}",
+    "save_amdmaster_failed": "amdmaster.index4の保存に失敗しました",
+    "set_locations_failed": "地点マスタのDB登録に失敗しました",
+    "locations_validate_error": "地点マスタに必須項目がありません\n{errors}"
+  },
+  "download_jma": {
+    "no_location": "test",
+    "get_stats_failed": "weather_observations, locationテーブルからの取得に失敗しました",
+    "no_records_found": "{table}の取得結果が0件です",
+    "set_stats_failed": "{table}へのDB登録に失敗しました",
+    "invalid_date": "指定された日付が不正です"
+  },
+  "make_stats": {
+    "set_stats_done": "{name} 登録完了: {count}件",
+    "get_stats_failed": "weather_observations, locationテーブルからの取得に失敗しました",
+    "no_records_found": "{table}の取得結果が0件です",
+    "set_stats_failed": "{table}へのDB登録に失敗しました"
+  }
+}

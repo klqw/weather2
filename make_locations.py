@@ -2,6 +2,7 @@ import configparser
 import re
 import requests
 import csv
+import json
 import logging
 import sys
 from pathlib import Path
@@ -26,18 +27,25 @@ def load_config():
 
   return config
 
+def load_message_config(config):
+  config_dir = Path(config["PATH"]["config_dir"])
+  error_massages_file = config_dir / "message_config.json"
+
+  with open(error_massages_file, encoding="utf-8") as f:
+    return json.load(f)
+
 
 # --------------------
 # 地点マスタ生成のための情報取得
 # --------------------
-def get_prec_no(input_file):
+def get_prec_no(input_file, messages):
   try:
     with open(input_file, encoding="utf-8", newline="") as f:
       reader = csv.DictReader(f)
       return list(reader)
 
   except FileNotFoundError:
-    raise FileNotFoundError("prec_no参照CSVがありません: %s", input_file)
+    raise FileNotFoundError(messages["prec_no_not_found"].format(path=input_file))
 
 def get_stations(prec_no, config):
   params = {
@@ -140,13 +148,14 @@ def get_stations(prec_no, config):
 
   return stations
 
-def load_amdmaster(path, config):
+def load_amdmaster(path, config, messages):
   path = Path(path)
 
   # ファイルがなければダウンロード
   if not path.exists():
-    print(f"amdmaster.index4が見つからないため、ダウンロードします: {path}")
-    logging.info("amdmaster.index4が見つからないため、ダウンロードします: %s", path)
+    message = messages["amdmaster_not_found"].format(path=path)
+    print(message)
+    logging.info(message)
 
     try:
       response = requests.get(
@@ -160,16 +169,16 @@ def load_amdmaster(path, config):
       with open(path, "wb") as f:
         f.write(response.content)
 
-      logging.info("amdmaster.index4のダウンロード完了")
+      logging.info(messages["amdmaster_download_done"])
 
     except requests.RequestException as e:
       raise RuntimeError(
-        f"amdmaster.index4のダウンロードに失敗しました: {config["URL"]["amdmaster_url"]}"
+        messages["amdmaster_download_failed"].format(url=config["URL"]["amdmaster_url"])
       ) from e
 
     except OSError as e:
       raise RuntimeError(
-        "amdmaster.index4の保存に失敗しました"
+        messages["save_amdmaster_failed"]
       ) from e
 
   # amdmaster.index4を読み込む
@@ -201,7 +210,7 @@ def load_amdmaster(path, config):
 # --------------------
 # 地点マスタDB登録
 # --------------------
-def save_location_master(output_file, all_stations, config):
+def save_location_master(all_stations, config, messages):
   sql = """
     INSERT INTO locations (
       station_type,
@@ -249,42 +258,15 @@ def save_location_master(output_file, all_stations, config):
         for station in all_stations.values():
           cur.execute(sql, station)
 
-    print(f"locationsテーブルへの地点マスタ登録が完了しました。登録件数: {len(all_stations)}件")
-    logging.info(
-      "locationsテーブルへの地点マスタ登録が完了しました。登録件数: %d件",
-      len(all_stations)
-    )
-
-    with open(output_file, "w", encoding=config["CSV"]["output_encoding"], newline="") as f:
-      writer = csv.DictWriter(
-        f,
-        fieldnames=[
-          "station_type",
-          "block_no",
-          "name",
-          "kana",
-          "latitude",
-          "longitude",
-          "elevation",
-          "name_en",
-          "prefecture_name",
-          "prefecture_name_en",
-          "start_date",
-          "end_date"
-        ]
-      )
-
-      writer.writeheader()
-      writer.writerows(all_stations.values())
+    message = messages["set_locations_done"].format(count=len(all_stations))
+    print(message)
+    logging.info(message)
 
   except psycopg.Error as e:
-    raise RuntimeError("地点マスタのDB登録に失敗しました") from e
-
-  except OSError as e:
-    raise RuntimeError(f"地点マスタのCSV出力に失敗しました: {output_file}") from e
+    raise RuntimeError(messages["set_locations_failed"]) from e
 
 # DB登録前の地点マスタ不正値チェック
-def validate_stations(all_stations):
+def validate_stations(all_stations, messages):
   required_keys = [
     "station_type",
     "block_no",
@@ -317,8 +299,7 @@ def validate_stations(all_stations):
 
   if errors:
     raise ValueError(
-      "地点マスタに必須項目がありません\n"
-      + "\n".join(errors)
+      messages["locations_validate_error"].format(errors="\n".join(errors))
     )
 
 
@@ -327,6 +308,8 @@ def validate_stations(all_stations):
 # --------------------
 def main():
   config = load_config()
+  message_config = load_message_config(config)
+  messages = message_config["make_locations"]
 
   logging.basicConfig(
     filename=config["LOG"]["log_file"],
@@ -336,35 +319,36 @@ def main():
   )
 
   input_dir = Path(config["PATH"]["input_dir"])
-  output_dir = Path(config["PATH"]["location_dir"])
-
   prec_no_file = (input_dir / "prec_no.csv")
   amdmaster_file = (input_dir / "amdmaster.index4")
-  locations_file = (output_dir / "locations.csv")
 
   all_stations = {}
 
   logging.info("========== START ==========")
 
   try:
-    reader = get_prec_no(prec_no_file)
-    logging.info("prec_no参照CSV読み込み完了: %s", prec_no_file)
+    reader = get_prec_no(prec_no_file, messages)
+    logging.info(messages["get_prec_no"].format(path=prec_no_file))
 
+    # locations登録のための地点情報を取得
     for row in reader:
         prec_no = row["prec_no"]
         prefecture_name = row["prefecture_name"]
 
         stations = get_stations(row, config)
-        print(f"prec_no: {prec_no} prefecture_name: {prefecture_name} を取得 ({len(stations)}地点)")
-        logging.info(
-          "prec_no: %s prefecture_name: %s を取得 (%d地点)",
-          prec_no, prefecture_name, len(stations)
+        
+        message = messages["get_stations"].format(
+          prec_no=prec_no,
+          prefecture_name=prefecture_name,
+          count=len(stations)
         )
+        print(message)
+        logging.info(message)
 
         for key, station in stations.items():
           all_stations[key] = station
     
-    amdmaster = load_amdmaster(amdmaster_file, config)
+    amdmaster = load_amdmaster(amdmaster_file, config, messages)
 
     for station in all_stations.values():
       name = station["name"]
@@ -375,10 +359,8 @@ def main():
         station["name_en"] = None
 
     # DB登録前に必須項目の格納チェック
-    validate_stations(all_stations)
-    save_location_master(locations_file, all_stations, config)
-    print(f"\n出力先: {locations_file}")
-    logging.info("出力完了: %s", locations_file)
+    validate_stations(all_stations, messages)
+    save_location_master(all_stations, config, messages)
 
   except (FileNotFoundError, RuntimeError, ValueError) as e:
     logging.error(str(e))
