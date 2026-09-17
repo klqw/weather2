@@ -1,6 +1,5 @@
 import argparse
 import configparser
-import csv
 import time
 import logging
 import sys
@@ -30,13 +29,20 @@ def load_config():
 
   return config
 
+def load_message_config(config):
+  config_dir = Path(config["PATH"]["config_dir"])
+  error_massages_file = config_dir / "message_config.json"
+
+  with open(error_massages_file, encoding="utf-8") as f:
+    return json.load(f)
+
 
 # --------------------
 # 地点マスタの取得
 # --------------------
 
 # 手動Ver
-def get_manual_download_location(location, prefecture, config):
+def get_manual_download_location(location, prefecture, config, messages):
   sql = f"""
     SELECT
       location_id,
@@ -68,15 +74,17 @@ def get_manual_download_location(location, prefecture, config):
         location_data = cur.fetchone()
 
         if location_data is None:
-          raise ValueError(f"指定された地点が見つかりません 地点名: {location}, 都府県名: {prefecture}")
+          raise ValueError(
+            messages["no_location"].format(location=location, prefecture=prefecture)
+          )
 
         return location_data
 
   except psycopg.Error as e:
-    raise RuntimeError("locationテーブルからの取得に失敗しました") from e
+    raise RuntimeError(messages["get_locations_failed"]) from e
 
 # 自動Ver
-def get_auto_download_location(config):
+def get_auto_download_location(config, messages):
   sql = """
     SELECT
       location_id,
@@ -112,44 +120,18 @@ def get_auto_download_location(config):
         location_data = cur.fetchone()
 
         if location_data is None:
-          raise ValueError("ダウンロード対象の地点が見つかりません")
+          raise ValueError(messages["location_not_found"])
 
         return location_data
 
   except psycopg.Error as e:
-    raise RuntimeError("locationテーブルからの取得に失敗しました") from e
-
-
-def load_locations(location, prefecture, config):
-  location_dir = Path(config["PATH"]["location_dir"])
-  locations_file = (location_dir / "locations.csv")
-
-  try:
-    with open(locations_file, encoding=config["CSV"]["output_encoding"], newline="") as f:
-      reader = csv.DictReader(f)
-      matches = [
-        row for row in reader
-        if row["name"] == location and row["prefecture_name"] == prefecture or
-        row["name_en"] == location and row["prefecture_name_en"] == prefecture
-      ]
-      logging.info("手動ダウンロード対象 地点名: %s, 都府県名: %s", location, prefecture)
-
-  except FileNotFoundError:
-    raise FileNotFoundError("地点マスタCSVがありません")
-
-  if len(matches) == 0:
-    raise ValueError(f"指定された地点が見つかりません 地点名: {location}, 都府県名: {prefecture}")
-
-  if len(matches) > 1:
-    raise ValueError(f"指定された地点が複数見つかりました 地点名: {location}, 都府県名: {prefecture}")
-
-  return matches[0]
+    raise RuntimeError(messages["get_locations_failed"]) from e
 
 
 # --------------------
 # ダウンロード処理
 # --------------------
-def download_csv(loc_data, next_start_date, config):
+def download_csv(loc_data, next_start_date, config, messages):
 
   # チャンク(データ取得年数間隔)
   chunk_years = int(config["DOWNLOAD"]["chunk_years"])
@@ -243,19 +225,20 @@ def download_csv(loc_data, next_start_date, config):
     with open(output_file, "wb") as f:
       f.write(response.content)
 
-    print(f"ダウンロード完了: {filename}")
-    logging.info("ダウンロード完了: %s", filename)
+    message = messages["download_done"].format(filename=filename)
+    print(message)
+    logging.info(message)
 
     return next_start_date, end_date
 
   except requests.RequestException as e:
-    raise RuntimeError(f"ファイルのダウンロードに失敗しました: {filename}") from e
+    raise RuntimeError(messages["download_failed"].format(filename=filename)) from e
 
 
 # --------------------
 # DB登録完了後のCSV削除
 # --------------------
-def delete_download_csv(location_data, config):
+def delete_download_csv(location_data, config, messages):
   # 一時保存CSV格納パス指定
   data_dir = Path(config["PATH"]["data_dir"])
 
@@ -267,12 +250,11 @@ def delete_download_csv(location_data, config):
     try:
       # 削除処理
       file.unlink()
-      logging.info("CSV削除: %s", file)
+      logging.info(messages["file_delete_done"].format(path=file))
 
     except OSError as e:
       logging.warning(
-        "CSV削除に失敗しました: %s, エラー: %s",
-        file, e
+        messages["file_delete_failed"].format(path=file, error=e)
       )
 
 
@@ -280,7 +262,10 @@ def delete_download_csv(location_data, config):
 # main処理
 # --------------------
 def main():
+  # 設定ファイルの取得
   config = load_config()
+  message_config = load_message_config(config)
+  messages = message_config["download_jma"]
   location_data = None
 
   logging.basicConfig(
@@ -301,24 +286,24 @@ def main():
   # CLI
   # --------------------
   parser = argparse.ArgumentParser(
-    description="地点指定ダウンロード"
+    description=messages["parser_description"]
   )
 
   parser.add_argument(
     "--location",
-    help="地点名を漢字または英字で指定"
+    help=messages["parser_location"]
   )
 
   parser.add_argument(
     "--prefecture",
-    help="都府県名を漢字または英字で指定"
+    help=messages["parser_prefecture"]
   )
 
   args = parser.parse_args()
 
   if bool(args.location) != bool(args.prefecture):
     parser.error(
-      "--location と --prefecture は両方指定するか、両方省略してください"
+      messages["parser_error"]
     )
 
   logging.info("========== START ==========")
@@ -329,14 +314,14 @@ def main():
   try:
     if args.location and args.prefecture:
       # 指定した値で地点マスタから取得対象のデータを取得
-      location_data = get_manual_download_location(args.location, args.prefecture, config)
+      location_data = get_manual_download_location(args.location, args.prefecture, config, messages)
     else:
       # 地点マスタから取得対象のデータを取得
-      location_data = get_auto_download_location(config)
+      location_data = get_auto_download_location(config, messages)
 
     # 古いデータから15年ごとにDLを行う
     while True:
-      next_start_date, end_date = download_csv(location_data, next_start_date, config)
+      next_start_date, end_date = download_csv(location_data, next_start_date, config, messages)
 
       if next_start_date > end_date:
         break
@@ -347,16 +332,19 @@ def main():
 
     if registered_count == 0:
       raise ValueError(
-        f"登録可能な気象データがありません。地点:{location_data['name']} - {location_data['prefecture_name']}"
+        messages["no_records_found"].format(
+          location=location_data['name'],
+          prefecture=location_data['prefecture_name']
+        )
       )
     
-    print(
-      f"気象データのDB登録が完了しました。地点: {location_data["name"]} - {location_data["prefecture_name"]}, 登録件数: {registered_count}件"
+    message = messages["register_jma_done"].format(
+      location=location_data["name"],
+      prefecture=location_data["prefecture_name"],
+      count=registered_count
     )
-    logging.info(
-      "気象データのDB登録が完了しました。地点: %s - %s, 登録件数: %d件",
-      location_data["name"], location_data["prefecture_name"], registered_count
-    )
+    print(message)
+    logging.info(message)
 
     update_locations(
       location_data["location_id"],
@@ -364,14 +352,13 @@ def main():
       last_registered_date,
       config
     )
-    
-    print(
-      f"地点マスタのDB更新が完了しました。地点: {location_data['name']} - {location_data['prefecture_name']}"
+
+    update_message = messages["update_locations_done"].format(
+      location=location_data["name"],
+      prefecture=location_data["prefecture_name"]
     )
-    logging.info(
-      "地点マスタのDB更新が完了しました。地点: %s - %s",
-      location_data["name"], location_data["prefecture_name"]
-    )
+    print(update_message)
+    logging.info(update_message)
 
   except (FileNotFoundError, ValueError, RuntimeError) as e:
     print(f"エラー: {e}")
@@ -380,7 +367,7 @@ def main():
 
   finally:
     if location_data is not None:
-      delete_download_csv(location_data, config)
+      delete_download_csv(location_data, config, messages)
     logging.info("==========  END  ==========")
 
 

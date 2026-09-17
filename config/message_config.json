@@ -12,11 +12,20 @@
     "locations_validate_error": "地点マスタに必須項目がありません\n{errors}"
   },
   "download_jma": {
-    "no_location": "test",
-    "get_stats_failed": "weather_observations, locationテーブルからの取得に失敗しました",
-    "no_records_found": "{table}の取得結果が0件です",
-    "set_stats_failed": "{table}へのDB登録に失敗しました",
-    "invalid_date": "指定された日付が不正です"
+    "download_done": "ダウンロード完了: {filename}",
+    "file_delete_done": "CSV削除: {path}",
+    "register_jma_done": "気象データのDB登録が完了しました。地点: {location} - {prefecture}, 登録件数: {count}件",
+    "update_locations_done": "地点マスタのDB更新が完了しました。地点: {location} - {prefecture}",
+    "no_location": "指定された地点が見つかりません 地点名: {location}, 都府県名: {prefecture}",
+    "get_locations_failed": "locationsテーブルからの取得に失敗しました",
+    "location_not_found": "ダウンロード対象の地点が見つかりません",
+    "download_failed": "ファイルのダウンロードに失敗しました: {filename}",
+    "file_delete_failed": "CSV削除に失敗しました: {path}, エラー: {error}",
+    "no_records_found": "登録可能な気象データがありません。地点: {location} - {prefecture}",
+    "parser_description": "地点指定ダウンロード",
+    "parser_location": "地点名を漢字または英字で指定",
+    "parser_prefecture": "都府県名を漢字または英字で指定",
+    "parser_error": "--location と --prefecture は両方指定するか、両方省略してください"
   },
   "make_stats": {
     "set_stats_done": "{name} 登録完了: {count}件",
