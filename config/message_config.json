@@ -27,6 +27,11 @@
     "parser_prefecture": "都府県名を漢字または英字で指定",
     "parser_error": "--location と --prefecture は両方指定するか、両方省略してください"
   },
+  "register_jma": {
+    "csv_not_found": "CSVファイルがありません",
+    "register_jma_failed": "気象データのDB登録に失敗しました",
+    "update_locations_failed": "locationsテーブルの更新に失敗しました"
+  },
   "make_stats": {
     "set_stats_done": "{name} 登録完了: {count}件",
     "get_stats_failed": "weather_observations, locationテーブルからの取得に失敗しました",

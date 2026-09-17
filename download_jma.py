@@ -265,7 +265,8 @@ def main():
   # 設定ファイルの取得
   config = load_config()
   message_config = load_message_config(config)
-  messages = message_config["download_jma"]
+  messages_download = message_config["download_jma"]
+  messages_register = message_config["register_jma"]
   location_data = None
 
   logging.basicConfig(
@@ -286,24 +287,24 @@ def main():
   # CLI
   # --------------------
   parser = argparse.ArgumentParser(
-    description=messages["parser_description"]
+    description=messages_download["parser_description"]
   )
 
   parser.add_argument(
     "--location",
-    help=messages["parser_location"]
+    help=messages_download["parser_location"]
   )
 
   parser.add_argument(
     "--prefecture",
-    help=messages["parser_prefecture"]
+    help=messages_download["parser_prefecture"]
   )
 
   args = parser.parse_args()
 
   if bool(args.location) != bool(args.prefecture):
     parser.error(
-      messages["parser_error"]
+      messages_download["parser_error"]
     )
 
   logging.info("========== START ==========")
@@ -314,31 +315,31 @@ def main():
   try:
     if args.location and args.prefecture:
       # 指定した値で地点マスタから取得対象のデータを取得
-      location_data = get_manual_download_location(args.location, args.prefecture, config, messages)
+      location_data = get_manual_download_location(args.location, args.prefecture, config, messages_download)
     else:
       # 地点マスタから取得対象のデータを取得
-      location_data = get_auto_download_location(config, messages)
+      location_data = get_auto_download_location(config, messages_download)
 
     # 古いデータから15年ごとにDLを行う
     while True:
-      next_start_date, end_date = download_csv(location_data, next_start_date, config, messages)
+      next_start_date, end_date = download_csv(location_data, next_start_date, config, messages_download)
 
       if next_start_date > end_date:
         break
 
       time.sleep(download_interval)
 
-    first_registered_date, last_registered_date, registered_count = register_jma(location_data, config)
+    first_registered_date, last_registered_date, registered_count = register_jma(location_data, config, messages_register)
 
     if registered_count == 0:
       raise ValueError(
-        messages["no_records_found"].format(
+        messages_download["no_records_found"].format(
           location=location_data['name'],
           prefecture=location_data['prefecture_name']
         )
       )
     
-    message = messages["register_jma_done"].format(
+    message = messages_download["register_jma_done"].format(
       location=location_data["name"],
       prefecture=location_data["prefecture_name"],
       count=registered_count
@@ -350,10 +351,11 @@ def main():
       location_data["location_id"],
       first_registered_date,
       last_registered_date,
-      config
+      config,
+      messages_register
     )
 
-    update_message = messages["update_locations_done"].format(
+    update_message = messages_download["update_locations_done"].format(
       location=location_data["name"],
       prefecture=location_data["prefecture_name"]
     )
@@ -367,7 +369,7 @@ def main():
 
   finally:
     if location_data is not None:
-      delete_download_csv(location_data, config, messages)
+      delete_download_csv(location_data, config, messages_download)
     logging.info("==========  END  ==========")
 
 

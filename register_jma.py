@@ -8,12 +8,12 @@ from db import get_connection
 # --------------------
 # DB登録対象のCSV読み込み
 # --------------------
-def load_csv_files(data_dir, location_code, config):
+def load_csv_files(data_dir, location_code, config, messages):
 
   files = list(data_dir.glob(f"*_{location_code}_*.csv"))
 
   if not files:
-    raise FileNotFoundError("CSVファイルがありません")
+    raise FileNotFoundError(messages["csv_not_found"])
 
   dfs = []
 
@@ -42,7 +42,7 @@ def load_csv_files(data_dir, location_code, config):
 # 取得CSVからDB登録
 # --------------------
 
-def register_jma(location_data, config):
+def register_jma(location_data, config, messages):
   input_dir = Path(config["PATH"]["data_dir"])
 
   # location_codeの設定
@@ -108,7 +108,7 @@ def register_jma(location_data, config):
 
   try:
     # CSVからデータ取得
-    df = load_csv_files(input_dir, location_code, config)
+    df = load_csv_files(input_dir, location_code, config, messages)
 
     # CSV取得データからDB登録(更新)
     with get_connection(config) as conn:
@@ -148,7 +148,7 @@ def register_jma(location_data, config):
     return first_registered_date, last_registered_date, registered_count
 
   except psycopg.Error as e:
-    raise RuntimeError("気象データのDB登録に失敗しました") from e
+    raise RuntimeError(messages["register_jma_failed"]) from e
 
 # NaN->NULL登録
 def to_db_value(value):
@@ -157,7 +157,7 @@ def to_db_value(value):
 # --------------------
 # DB登録完了後地点マスタ更新
 # --------------------
-def update_locations(location_id, start_date, last_observation_update, config):
+def update_locations(location_id, start_date, last_observation_update, config, messages):
   sql = """
     UPDATE locations
     SET
@@ -180,4 +180,4 @@ def update_locations(location_id, start_date, last_observation_update, config):
         )
 
   except psycopg.Error as e:
-    raise RuntimeError("locationテーブルの更新に失敗しました") from e
+    raise RuntimeError(messages["update_locations_failed"]) from e
