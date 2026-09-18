@@ -28,6 +28,7 @@
     "parser_error": "--location と --prefecture は両方指定するか、両方省略してください"
   },
   "register_jma": {
+    "read_csv": "CSV読み込み: {filename}",
     "csv_not_found": "CSVファイルがありません",
     "register_jma_failed": "気象データのDB登録に失敗しました",
     "update_locations_failed": "locationsテーブルの更新に失敗しました"

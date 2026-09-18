@@ -4,6 +4,12 @@ import json
 import sys
 from pathlib import Path
 import pandas as pd
+import psycopg
+from db import get_connection
+from psycopg.rows import dict_row
+
+BASE_DIR = Path(__file__).resolve().parent
+CONFIG_FILE = BASE_DIR / "config" / "config.ini"
 
 # --------------------
 # 設定ファイル
@@ -12,21 +18,14 @@ import pandas as pd
 # config.iniの取得
 def load_config():
   config = configparser.ConfigParser()
-
-  base_dir = Path(__file__).resolve().parent
-  config_file = base_dir / "config" / "config.ini"
-
-  config.read(
-    config_file,
-    encoding="utf-8"
-  )
-
+  config.read(CONFIG_FILE, encoding="utf-8")
   return config
 
 # item_config.jsonの取得
 def load_item(config):
-  input_dir = Path(config["PATH"]["input_dir"])
-  filename = (input_dir / "item_config.json")
+  filename = (
+    BASE_DIR / config["PATH"]["config_dir"] / config["FILE"]["items"]
+  )
 
   try:
     with open(filename, encoding="utf-8") as f:
@@ -44,6 +43,42 @@ def load_item(config):
 # --------------------
 # CSV -> HTML
 # --------------------
+
+# locationsから地点マスタ取得
+def get_locations(config):
+  sql = """
+    SELECT
+      station_type,
+      block_no,
+      name,
+      kana,
+      latitude,
+      longitude,
+      elevation,
+      name_en,
+      prefecture_name,
+      prefecture_name_en,
+      start_date,
+      end_date
+    FROM locations;
+  """
+
+  try:
+    with get_connection(config) as conn:
+      with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql)
+        location_data = cur.fetchall()
+
+        if location_data is None:
+          raise ValueError("locationsテーブルにデータがありませんでした")
+
+        logging.info("locationsテーブルからの取得に成功しました")
+
+        return location_data
+
+  except psycopg.Error as e:
+    raise RuntimeError("locationsテーブルからの取得に失敗しました") from e
+
 
 # output/result からCSVを取得
 def load_result_csv_files(result_dir):
@@ -130,21 +165,16 @@ def diff_to_color(diff):
 
 # CSV -> HTML
 def create_html(csv_file, config):
-  # 地点マスタのパス設定
-  location_dir = Path(config["PATH"]["location_input_dir"])
-  location_file = (location_dir / "locations.csv")
   try:
+    # 地点マスタ取得
+    location_df = pd.DataFrame(get_locations(config))
     # CSV読み込み
-    location_df = pd.read_csv(
-      location_file, dtype={"block_no": str},
-      encoding=config["CSV"]["output_encoding"]
-    )
     output_df = pd.read_csv(csv_file)
 
   except FileNotFoundError as e:
     print(f"エラー: {e}")
     raise FileNotFoundError("CSVファイルがありません")
-  
+
   groups = output_df.groupby("比較対象", sort=False)
 
   # ファイル名から地点コード・日付を取得

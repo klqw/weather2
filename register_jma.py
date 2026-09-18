@@ -18,7 +18,7 @@ def load_csv_files(data_dir, location_code, config, messages):
   dfs = []
 
   for file in files:
-    logging.info("読み込み: %s", file)
+    logging.info(messages["read_csv"].format(filename=file))
 
     # 気象台, アメダスそれぞれの使用カラム指定
     usecols_map = {
