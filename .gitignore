@@ -239,3 +239,6 @@ output/location/location.csv
 
 # Secret File
 config/db_secret.ini
+
+# batch
+run_download_jma.bat
