@@ -118,5 +118,3 @@ last_daily_updateへ保存
 
 ## TODO
 - CSVとDBの値照合
-- make_stats.pyの関数部分微修正
-- 自動巡回バッチ(最新データ取得用)

@@ -1,8 +1,8 @@
 import configparser
-import re
 import requests
 import logging
 import json
+import time
 import sys
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -50,8 +50,11 @@ def get_locations(config, messages):
     FROM locations
     WHERE
       complete = TRUE
-      AND
-      end_date = '9999-12-31'
+      AND end_date = '9999-12-31'
+      AND (
+        last_daily_update IS NULL
+        OR last_daily_update < CURRENT_DATE
+      )
     ORDER BY last_update ASC NULLS FIRST;
   """
 
@@ -85,15 +88,14 @@ def get_url(location, start_date):
   return url
 
 # 日別観測値取得
-def get_weather_data(url, location, start_date, messages):
-  # 地点
-  name = location["name"]
-  # 都府県
-  prefecture_name = location["prefecture_name"]
+def get_weather_data(url, location, start_date, config, messages):
+  # 間隔
+  # 地点, 都府県
+  name, prefecture_name = (location["name"], location["prefecture_name"])
 
   # request -> response
   try:
-    response = requests.get(url, timeout=30)
+    response = requests.get(url, timeout=int(config["DOWNLOAD"]["request_timeout"]))
     response.raise_for_status()
 
   except requests.RequestException as e:
@@ -212,7 +214,7 @@ def to_float(value):
 # --------------------
 # weather_observations更新
 # --------------------
-def set_weather_data(cur, weather_data, messages):
+def set_weather_data(cur, location, weather_data, messages):
   # SQL設定
   sql = """
     INSERT INTO weather_observations (
@@ -256,13 +258,18 @@ def set_weather_data(cur, weather_data, messages):
     return len(weather_data)
 
   except psycopg.Error as e:
-    raise RuntimeError(messages["set_weather_data_failed"]) from e
+    raise RuntimeError(
+      messages["set_weather_data_failed"].format(        
+        location=location["name"],
+        prefecture=location["prefecture_name"]
+      )
+    ) from e
 
 
 # --------------------
 # locations更新
 # --------------------
-def update_locations(cur, location_id, last_daily_update, messages):
+def update_locations(cur, location, last_daily_update, messages):
   # SQL設定
   sql = """
     UPDATE locations
@@ -274,11 +281,16 @@ def update_locations(cur, location_id, last_daily_update, messages):
   try:
     cur.execute(
       sql,
-      (last_daily_update, location_id)
+      (last_daily_update, location["location_id"])
     )
 
   except psycopg.Error as e:
-    raise RuntimeError(messages["update_locations_failed"]) from e
+    raise RuntimeError(
+      messages["update_locations_failed"].format(
+        location=location["name"],
+        prefecture=location["prefecture_name"]
+      )
+    ) from e
 
 
 # --------------------
@@ -290,6 +302,18 @@ def main():
   message_config = load_message_config(config)
   messages = message_config["daily_update"]
 
+  # バッチ実行日と観測終了日の日付を設定
+  batch_date = date.today()
+  end_date = batch_date - timedelta(days=1)
+
+  # 件数カウント用
+  success_count = 0
+  error_count = 0
+  total_processed_count = 0
+
+  # request待機時間設定
+  request_interval = float(config["DOWNLOAD"]["request_interval"])
+
   logging.basicConfig(
     filename=config["LOG"]["log_file"],
     level=logging.INFO,
@@ -300,76 +324,88 @@ def main():
   logging.info("========== START ==========")
 
   try:
-    # バッチ実行日と観測終了日の日付を設定
-    batch_date = date.today()
-    end_date = batch_date - timedelta(days=1)
-
-    # 件数カウント用
-    success_count = 0
-    total_processed_count = 0
-
     # 更新対象の地点取得
     location_data = get_locations(config, messages)
 
     # 地点ごとに日別観測値取得 -> weather_observationsテーブル登録
     for location in location_data:
-      # set_weather_dataに渡す用list
-      weather_data_list = []
-      # 観測開始日を設定
-      start_date = location["last_update"] - timedelta(days=2)
-      current_date =start_date
+      try:
+        # 地点, 都府県
+        name, prefecture_name = (location["name"], location["prefecture_name"])
 
-      # 日別観測値を取得
-      while current_date <= end_date:
-        url = get_url(location, current_date)
-        data = get_weather_data(url, location, current_date, messages)
-        weather_data_list.extend(data)
+        # set_weather_dataに渡す用list
+        weather_data_list = []
 
-        # 翌月へ
-        if current_date.month == 12:
-          current_date = date(
-            current_date.year + 1,
-            1,
-            1
-          )
-        else:
-          current_date = date(
-            current_date.year,
-            current_date.month + 1,
-            1
-          )
+        # 観測開始日を設定
+        start_date = location["last_update"] - timedelta(days=2)
+        current_date = start_date
 
-      # DB更新
-      with get_connection(config) as conn:
-        with conn.cursor() as cur:
-          # weather_observationsを更新
-          processed_count = set_weather_data(cur, weather_data_list, messages)
+        # 日別観測値を取得
+        while current_date <= end_date:
+          url = get_url(location, current_date)
 
-          # locationsを更新
-          update_locations(cur, location["location_id"], batch_date, messages)
+          try:
+            data = get_weather_data(url, location, current_date, config, messages)
+          finally:
+            time.sleep(request_interval)
+            
+          weather_data_list.extend(data)
 
-      # 成功件数加算
-      success_count += 1
-      total_processed_count += processed_count
+          # 翌月へ
+          if current_date.month == 12:
+            current_date = date(
+              current_date.year + 1,
+              1,
+              1
+            )
+          else:
+            current_date = date(
+              current_date.year,
+              current_date.month + 1,
+              1
+            )
 
-      message = messages["update_done"].format(
-        location=location["name"],
-        prefecture=location["prefecture_name"],
-        start_date=start_date,
-        end_date=end_date,
-        count=processed_count
-      )
+        # DB更新
+        with get_connection(config) as conn:
+          with conn.cursor() as cur:
+            # weather_observationsを更新
+            processed_count = set_weather_data(cur, location, weather_data_list, messages)
 
-      print(message)
-      logging.info(message)
+            # locationsを更新
+            update_locations(cur, location, batch_date, messages)
+
+        # 成功件数加算
+        success_count += 1
+        total_processed_count += processed_count
+
+        message = messages["update_done"].format(
+          location=name,
+          prefecture=prefecture_name,
+          start_date=start_date,
+          end_date=end_date,
+          count=processed_count
+        )
+
+        print(message)
+        logging.info(message)
+
+      except (ValueError, RuntimeError) as e:
+        error_count += 1
+        logging.error(str(e))
+        print(f"エラー: {e}")
+        continue
 
     # 全地点更新後に表示
     summary_message = messages["batch_done"].format(
       success_count=success_count,
+      error_count=error_count,
       count=total_processed_count
     )
     print(summary_message)
     logging.info(summary_message)
+
+    if error_count > 0:
+      sys.exit(1)
   
   except (ValueError, RuntimeError) as e:
     logging.error(str(e))

@@ -40,12 +40,11 @@
     "set_stats_failed": "{table}へのDB登録に失敗しました"
   },
   "daily_update": {
-    "get_locations": "地点マスタを取得",
     "update_done": "地点: {location} - {prefecture}, 更新基準日: {start_date} - 取得終了日: {end_date}, 登録件数: {count}件",
-    "batch_done": "日次更新完了 更新地点: {success_count}地点, 登録件数: {count}件",
+    "batch_done": "日次更新完了: 成功地点={success_count}, 失敗地点={error_count}, 登録件数={count}件",
     "get_locations_failed": "locationsテーブルからの取得に失敗しました",
-    "set_weather_data_failed": "weather_observationsテーブルの更新に失敗しました",
-    "update_locations_failed": "locationsテーブルの更新に失敗しました",
+    "set_weather_data_failed": "weather_observationsテーブルの更新に失敗しました。地点: {location} - {prefecture}",
+    "update_locations_failed": "locationsテーブルの更新に失敗しました。地点: {location} - {prefecture}",
     "request_failed": "気象庁からの日別観測値取得に失敗しました。地点: {location} - {prefecture}, URL: {url}",
     "table_not_found": "日別観測値テーブルが見つかりません。地点: {location} - {prefecture}, URL: {url}",
     "invalid_station_type": "未対応のstation_typeです: {station_type}",
