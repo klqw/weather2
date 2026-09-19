@@ -99,192 +99,22 @@ sys     0m0.218s
 日時更新用バッチ
 daily_update.py
 
-## make_stats DB取得
+locations.complete = TRUE
+AND locations.end_date = 9999-12-31
+↓
+COALESCE(last_daily_update, last_observation_update)
+↓
+前回位置を決定
+↓
+必要な年月のdailyページだけ取得
+↓
+必要な日付の<tr>を抽出
+↓
+weather_observationsへUPSERT
+↓
+最後に正常反映できた観測日を
+last_daily_updateへ保存
 
-### daily_avg_stats
-WITH daily_stats AS (
-  SELECT
-    location_id,
-    EXTRACT(MONTH FROM observed_date) AS month,
-    EXTRACT(DAY FROM observed_date) AS day,
-    AVG(avg_temp) AS avg_temp,
-    AVG(max_temp) AS max_temp,
-    AVG(min_temp) AS min_temp,
-    AVG(avg_humidity) AS avg_humidity,
-    AVG(sunshine_hours) AS sunshine_hours,
-    AVG(precipitation) AS precipitation,
-    AVG(avg_wind_speed) AS avg_wind_speed,
-    AVG(max_snow_depth) AS max_snow_depth
-  FROM weather_observations
-  GROUP BY
-    location_id,
-    EXTRACT(MONTH FROM observed_date),
-    EXTRACT(DAY FROM observed_date)
-)
-SELECT
-  d.location_id,
-  l.name_en,
-  l.prefecture_name_en,
-  d.month,
-  d.day,
-  d.avg_temp,
-  d.max_temp,
-  d.min_temp,
-  d.avg_humidity,
-  d.sunshine_hours,
-  d.precipitation,
-  d.avg_wind_speed,
-  d.max_snow_depth
-FROM daily_stats AS d
-JOIN locations AS l
-  ON d.location_id = l.location_id
-ORDER BY d.location_id;
-
-### month_avg_stats
-WITH month_stats AS (
-  SELECT
-    location_id,
-    EXTRACT(MONTH FROM observed_date) AS month,
-    AVG(avg_temp) AS avg_temp,
-    AVG(max_temp) AS max_temp,
-    AVG(min_temp) AS min_temp,
-    AVG(avg_humidity) AS avg_humidity,
-    AVG(sunshine_hours) AS sunshine_hours,
-    AVG(precipitation) AS precipitation,
-    AVG(avg_wind_speed) AS avg_wind_speed,
-    AVG(max_snow_depth) AS max_snow_depth
-  FROM weather_observations
-  GROUP BY
-    location_id,
-    EXTRACT(MONTH FROM observed_date)
-)
-SELECT
-  m.location_id,
-  l.name_en,
-  l.prefecture_name_en,
-  m.month,
-  m.avg_temp,
-  m.max_temp,
-  m.min_temp,
-  m.avg_humidity,
-  m.sunshine_hours,
-  m.precipitation,
-  m.avg_wind_speed,
-  m.max_snow_depth
-FROM month_stats AS m
-JOIN locations AS l
-  ON m.location_id = l.location_id
-ORDER BY m.location_id;
-
-### overall_avg_stats
-WITH overall_stats AS (
-  SELECT
-    location_id,
-    AVG(avg_temp) AS avg_temp,
-    AVG(max_temp) AS max_temp,
-    AVG(min_temp) AS min_temp,
-    AVG(avg_humidity) AS avg_humidity,
-    AVG(sunshine_hours) AS sunshine_hours,
-    AVG(precipitation) AS precipitation,
-    AVG(avg_wind_speed) AS avg_wind_speed,
-    AVG(max_snow_depth) AS max_snow_depth
-  FROM weather_observations
-  GROUP BY location_id
-)
-SELECT
-  o.location_id,
-  l.name_en,
-  l.prefecture_name_en,
-  o.avg_temp,
-  o.max_temp,
-  o.min_temp,
-  o.avg_humidity,
-  o.sunshine_hours,
-  o.precipitation,
-  o.avg_wind_speed,
-  o.max_snow_depth
-FROM overall_stats AS o
-JOIN locations AS l
-  ON o.location_id = l.location_id
-ORDER BY o.location_id;
-
-### daily_max_stats
-WITH daily_stats AS (
-  SELECT
-    location_id,
-    EXTRACT(MONTH FROM observed_date) AS month,
-    EXTRACT(DAY FROM observed_date) AS day,
-    MAX(avg_temp) AS avg_temp,
-    MAX(max_temp) AS max_temp,
-    MAX(min_temp) AS min_temp,
-    MAX(avg_humidity) AS avg_humidity,
-    MAX(sunshine_hours) AS sunshine_hours,
-    MAX(precipitation) AS precipitation,
-    MAX(avg_wind_speed) AS avg_wind_speed,
-    MAX(max_snow_depth) AS max_snow_depth
-  FROM weather_observations
-  GROUP BY
-    location_id,
-    EXTRACT(MONTH FROM observed_date),
-    EXTRACT(DAY FROM observed_date)
-)
-SELECT
-  d.location_id,
-  l.name_en,
-  l.prefecture_name_en,
-  d.month,
-  d.day,
-  d.avg_temp,
-  d.max_temp,
-  d.min_temp,
-  d.avg_humidity,
-  d.sunshine_hours,
-  d.precipitation,
-  d.avg_wind_speed,
-  d.max_snow_depth
-FROM daily_stats AS d
-JOIN locations AS l
-  ON d.location_id = l.location_id
-ORDER BY d.location_id;
-
-### daily_min_stats
-WITH daily_stats AS (
-  SELECT
-    location_id,
-    EXTRACT(MONTH FROM observed_date) AS month,
-    EXTRACT(DAY FROM observed_date) AS day,
-    MIN(avg_temp) AS avg_temp,
-    MIN(max_temp) AS max_temp,
-    MIN(min_temp) AS min_temp,
-    MIN(avg_humidity) AS avg_humidity,
-    MIN(sunshine_hours) AS sunshine_hours,
-    MIN(precipitation) AS precipitation,
-    MIN(avg_wind_speed) AS avg_wind_speed,
-    MIN(max_snow_depth) AS max_snow_depth
-  FROM weather_observations
-  GROUP BY
-    location_id,
-    EXTRACT(MONTH FROM observed_date),
-    EXTRACT(DAY FROM observed_date)
-)
-SELECT
-  d.location_id,
-  l.name_en,
-  l.prefecture_name_en,
-  d.month,
-  d.day,
-  d.avg_temp,
-  d.max_temp,
-  d.min_temp,
-  d.avg_humidity,
-  d.sunshine_hours,
-  d.precipitation,
-  d.avg_wind_speed,
-  d.max_snow_depth
-FROM daily_stats AS d
-JOIN locations AS l
-  ON d.location_id = l.location_id
-ORDER BY d.location_id;
 
 ## TODO
 - CSVとDBの値照合

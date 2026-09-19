@@ -4,6 +4,7 @@ CREATE TABLE locations (
     location_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     station_type VARCHAR(1),
     block_no VARCHAR(10),
+    prec_no VARCHAR(10),
     name VARCHAR(50),
     kana VARCHAR(50),
     latitude DOUBLE PRECISION,

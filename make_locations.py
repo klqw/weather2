@@ -131,6 +131,7 @@ def get_stations(prec_no, config):
     stations[key] = {
       "station_type": station_type,
       "block_no": block_no,
+      "prec_no": prec_no["prec_no"],
       "name": name,
       "kana": kana,
       "latitude": lat_deg + lat_min / 60,
@@ -211,6 +212,7 @@ def save_location_master(all_stations, config, messages):
     INSERT INTO locations (
       station_type,
       block_no,
+      prec_no,
       name,
       kana,
       latitude,
@@ -225,6 +227,7 @@ def save_location_master(all_stations, config, messages):
     VALUES (
       %(station_type)s,
       %(block_no)s,
+      %(prec_no)s,
       %(name)s,
       %(kana)s,
       %(latitude)s,
@@ -266,6 +269,7 @@ def validate_stations(all_stations, messages):
   required_keys = [
     "station_type",
     "block_no",
+    "prec_no",
     "name",
     "kana",
     "latitude",

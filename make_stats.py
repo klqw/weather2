@@ -7,27 +7,23 @@ import psycopg
 from psycopg.rows import dict_row
 from db import get_connection
 
+BASE_DIR = Path(__file__).resolve().parent
+CONFIG_FILE = BASE_DIR / "config" / "config.ini"
+
 # --------------------
 # 設定ファイル
 # --------------------
 def load_config():
   config = configparser.ConfigParser()
-
-  base_dir = Path(__file__).resolve().parent
-  config_file = base_dir / "config" / "config.ini"
-
-  config.read(
-    config_file,
-    encoding="utf-8"
-  )
-
+  config.read(CONFIG_FILE, encoding="utf-8")
   return config
 
 def load_message_config(config):
-  config_dir = Path(config["PATH"]["config_dir"])
-  error_massages_file = config_dir / "message_config.json"
+  filename = (
+    BASE_DIR / config["PATH"]["config_dir"] / config["FILE"]["messages"]
+  )
 
-  with open(error_massages_file, encoding="utf-8") as f:
+  with open(filename, encoding="utf-8") as f:
     return json.load(f)
 
 
