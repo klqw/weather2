@@ -735,8 +735,11 @@ def save_csv(df, output_file, config):
 def main():
   config = load_config()
 
+  # ログ設定
+  log_file = Path(config["LOG"]["log_file"])
+  log_file.parent.mkdir(parents=True, exist_ok=True)
   logging.basicConfig(
-    filename=config["LOG"]["log_file"],
+    filename=log_file,
     level=logging.INFO,
     encoding=config["LOG"]["log_encoding"],
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"

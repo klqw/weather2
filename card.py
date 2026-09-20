@@ -164,10 +164,8 @@ def diff_to_color(diff):
   return color
 
 # CSV -> HTML
-def create_html(csv_file, config):
+def create_html(location_df, csv_file, output_dir, config):
   try:
-    # 地点マスタ取得
-    location_df = pd.DataFrame(get_locations(config))
     # CSV読み込み
     output_df = pd.read_csv(csv_file)
 
@@ -323,7 +321,7 @@ def create_html(csv_file, config):
   """
 
   # HTML出力
-  output_file = csv_file.with_suffix(".html")
+  output_file = output_dir / f"{csv_file.stem}.html"
   output_file.write_text(html, encoding="utf-8")
 
   print(f"生成: {output_file}")
@@ -336,14 +334,20 @@ def create_html(csv_file, config):
 def main():
   config = load_config()
 
+  # ログ設定
+  log_file = Path(config["LOG"]["log_file"])
+  log_file.parent.mkdir(parents=True, exist_ok=True)
   logging.basicConfig(
-    filename=config["LOG"]["log_file"],
+    filename=log_file,
     level=logging.INFO,
     encoding=config["LOG"]["log_encoding"],
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
   )
 
   input_dir = Path(config["PATH"]["result_dir"])
+  output_dir = Path(config["PATH"]["card_dir"])
+
+  output_dir.mkdir(parents=True, exist_ok=True)
 
   logging.info("========== START ==========")
 
@@ -351,10 +355,13 @@ def main():
   # 各CSVをHTMLに変換
   # --------------------
   try:
+    # 地点マスタ取得
+    location_df = pd.DataFrame(get_locations(config))
+
     csv_files = load_result_csv_files(input_dir)
 
     for csv_file in csv_files:
-      create_html(csv_file, config)
+      create_html(location_df, csv_file, output_dir, config)
 
     logging.info("HTML出力完了")
 

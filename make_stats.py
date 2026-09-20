@@ -542,8 +542,11 @@ def main():
   message_config = load_message_config(config)
   messages = message_config["make_stats"]
 
+  # ログ設定
+  log_file = Path(config["LOG"]["log_file"])
+  log_file.parent.mkdir(parents=True, exist_ok=True)
   logging.basicConfig(
-    filename=config["LOG"]["log_file"],
+    filename=log_file,
     level=logging.INFO,
     encoding=config["LOG"]["log_encoding"],
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"

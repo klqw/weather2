@@ -265,8 +265,11 @@ def main():
   messages_register = message_config["register_jma"]
   location_data = None
 
+  # ログ設定
+  log_file = Path(config["LOG"]["log_file"])
+  log_file.parent.mkdir(parents=True, exist_ok=True)
   logging.basicConfig(
-    filename=config["LOG"]["log_file"],
+    filename=log_file,
     level=logging.INFO,
     encoding=config["LOG"]["log_encoding"],
     format="%(asctime)s %(levelname)s [%(filename)s] %(message)s"
