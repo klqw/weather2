@@ -204,6 +204,7 @@ def create_html(location_df, csv_file, output_dir, config):
   <html lang="ja">
   <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{display_date} {location_name["name"]} - {location_name["prefecture_name"]}</title>
     <link rel="stylesheet" href="../style.css">
   </head>
