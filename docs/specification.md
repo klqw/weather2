@@ -117,4 +117,3 @@ last_daily_updateへ保存
 
 
 ## TODO
-- CSVとDBの値照合
