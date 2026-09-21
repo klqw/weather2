@@ -25,7 +25,9 @@
     "parser_description": "地点指定ダウンロード",
     "parser_location": "地点名を漢字または英字で指定",
     "parser_prefecture": "都府県名を漢字または英字で指定",
-    "parser_error": "--location と --prefecture は両方指定するか、両方省略してください"
+    "parser_error": "--location と --prefecture は両方指定するか、両方省略してください",
+    "gateway_timeout": "Gateway Timeout: {filename} / {retry_interval}秒後に再試行 ({attempt}/{retry_count})",
+    "chunk_reduction": "チャンクを{chunk_years}年に縮小して再実行: {filename}"
   },
   "register_jma": {
     "read_csv": "CSV読み込み: {filename}",

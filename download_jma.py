@@ -144,6 +144,88 @@ def download_csv(loc_data, next_start_date, config, messages):
   else:
     end_date = loc_data["end_date"]
 
+  # CSV取得URL設定
+  url = config["URL"]["dl_url"]
+
+  # ダウンロードのために必要な値を設定
+  next_start_date, filename, output_file, data = make_chunk(
+    start_date, end_date, chunk_years, loc_data, config
+  )
+
+  # whileで504のときにretry
+  retry_count = int(config["DOWNLOAD"]["retry_count"])
+  retry_interval = int(config["DOWNLOAD"]["retry_interval"])
+  attempt = 0
+  while True:
+    try:
+      # DL処理
+      response = requests.post(
+        url, data=data,
+        timeout=int(config["DOWNLOAD"]["request_timeout"])
+      )
+
+      response.raise_for_status()
+
+      with open(output_file, "wb") as f:
+        f.write(response.content)
+
+      message = messages["download_done"].format(filename=filename)
+      print(message)
+      logging.info(message)
+
+      return next_start_date, end_date
+
+    except requests.HTTPError as e:
+      # HTTPレスポンスステータスコード取得
+      status_code = (
+        e.response.status_code
+        if e.response is not None
+        else None
+      )
+
+      # ステータスコード504だけリトライ
+      if status_code == 504:
+        # 2回までリトライ
+        if attempt < retry_count:
+          attempt += 1
+          retry_message = messages["gateway_timeout"].format(
+            filename=filename,
+            retry_interval=retry_interval,
+            attempt=attempt,
+            retry_count=retry_count
+          )
+          print(retry_message)
+          logging.warning(retry_message)
+          time.sleep(retry_interval)
+          continue
+
+        # リトライ全滅 -> チャンクの値を縮小して再度実行
+        if chunk_years > 1:
+          chunk_years = max(1, chunk_years // 2)
+          attempt = 0
+
+          next_start_date, filename, output_file, data = make_chunk(
+            start_date, end_date, chunk_years, loc_data, config
+          )
+
+          retry_message = messages["chunk_reduction"].format(
+            chunk_years=chunk_years,
+            filename=filename
+          )
+          print(retry_message)
+          logging.warning(retry_message)
+
+          continue
+
+      raise RuntimeError(messages["download_failed"].format(filename=filename)) from e
+
+    except requests.RequestException as e:
+      raise RuntimeError(messages["download_failed"].format(filename=filename)) from e
+
+
+# ダウンロード時に渡す値を設定
+def make_chunk(start_date, end_date, chunk_years, loc_data, config):
+
   # 次の開始日時
   next_start_date = start_date.replace(
     year=start_date.year + chunk_years
@@ -168,7 +250,7 @@ def download_csv(loc_data, next_start_date, config, messages):
 
   # 出力ファイル名設定
   filename = (
-    f'{loc_data["name_en"]}_{loc_data["station_type"]}{loc_data["block_no"]}_'
+    f'{loc_data["name_en"]}_{station_num_list}_'
     f'{start_date.year}-{chunk_end_date.year}.csv'
   )
 
@@ -176,9 +258,6 @@ def download_csv(loc_data, next_start_date, config, messages):
   output_dir = Path(config["PATH"]["data_dir"])
   output_dir.mkdir(parents=True, exist_ok=True)
   output_file = (output_dir / filename)
-
-  # CSV取得URL設定
-  url = config["URL"]["dl_url"]
 
   # DL情報設定
   data = {
@@ -209,26 +288,7 @@ def download_csv(loc_data, next_start_date, config, messages):
     "ymdLiteral": "1",
   }
 
-  try:
-    # DL処理
-    response = requests.post(
-      url, data=data,
-      timeout=int(config["DOWNLOAD"]["request_timeout"])
-    )
-
-    response.raise_for_status()
-
-    with open(output_file, "wb") as f:
-      f.write(response.content)
-
-    message = messages["download_done"].format(filename=filename)
-    print(message)
-    logging.info(message)
-
-    return next_start_date, end_date
-
-  except requests.RequestException as e:
-    raise RuntimeError(messages["download_failed"].format(filename=filename)) from e
+  return next_start_date, filename, output_file, data
 
 
 # --------------------
